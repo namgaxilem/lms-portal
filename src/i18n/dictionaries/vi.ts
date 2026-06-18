@@ -39,6 +39,11 @@ const vi: Messages = {
     openInMoodle: "Mở trong Moodle",
     notProvided: "Chưa cung cấp",
   },
+  scorm: {
+    title: "Trình phát SCORM",
+    back: "Quay lại",
+    hint: "Nếu trình phát trống, hãy mở Moodle một lần trong trình duyệt này để đăng nhập, sau đó tải lại trang.",
+  },
   auth: {
     signIn: "Đăng nhập",
     signOut: "Đăng xuất",

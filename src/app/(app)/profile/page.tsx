@@ -5,7 +5,6 @@ import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
 import { QueryState } from "@/components/ui/QueryState";
 import { MaterialIcon } from "@/components/MaterialIcon";
-import { MOODLE_BASE } from "@/lib/public-config";
 import type { UserProfile } from "@/lib/moodle/types";
 
 function fmtDate(ts?: number) {
@@ -96,18 +95,6 @@ export default function ProfilePage() {
               <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
                 {user.sitename}
               </p>
-
-              {MOODLE_BASE && (
-                <a
-                  href={`${MOODLE_BASE}/user/profile.php?id=${user.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-outline-variant px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary hover:text-primary"
-                >
-                  <MaterialIcon name="open_in_new" className="!text-base" />
-                  {t("profile.openInMoodle")}
-                </a>
-              )}
             </div>
           </div>
 

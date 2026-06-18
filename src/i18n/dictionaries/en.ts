@@ -39,6 +39,11 @@ const en = {
     openInMoodle: "Open in Moodle",
     notProvided: "Not provided",
   },
+  scorm: {
+    title: "SCORM Player",
+    back: "Back",
+    hint: "If the player is blank, open Moodle once in this browser to sign in, then reload this page.",
+  },
   auth: {
     signIn: "Sign in",
     signOut: "Log out",

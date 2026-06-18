@@ -6,7 +6,6 @@ import { useT } from "@/i18n/I18nProvider";
 import { QueryState } from "@/components/ui/QueryState";
 import { CourseGrid } from "@/components/CourseGrid";
 import { MaterialIcon } from "@/components/MaterialIcon";
-import { MOODLE_BASE } from "@/lib/public-config";
 import type { NotificationsResult, TimelineCourse } from "@/lib/moodle/types";
 
 function timeAgo(unix: number) {
@@ -160,15 +159,10 @@ export default function DashboardPage() {
             <p className="font-body-sm text-body-sm opacity-80">
               {user.fullname}
             </p>
-            <a
-              href={MOODLE_BASE || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 font-semibold backdrop-blur-sm transition-colors hover:bg-white/25"
-            >
-              <MaterialIcon name="open_in_new" className="!text-base" />
-              Moodle
-            </a>
+            <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-bold capitalize backdrop-blur-sm">
+              <MaterialIcon name="verified_user" fill className="!text-sm" />
+              {t(`role.${user.highestRole ?? (user.isSiteAdmin ? "admin" : "student")}`)}
+            </span>
           </div>
         </div>
       </div>

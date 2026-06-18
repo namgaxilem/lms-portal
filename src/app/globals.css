@@ -198,6 +198,18 @@ html.dark {
     color: var(--color-on-background);
     font-family: var(--font-inter), Inter, Arial, sans-serif;
   }
+  /* Tailwind v4 no longer sets pointer cursor on buttons — restore it for all
+     interactive elements so hovering shows the hand cursor. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer components {

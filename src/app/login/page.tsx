@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useT } from "@/i18n/I18nProvider";
 import { LangSwitcher } from "@/components/LangSwitcher";
@@ -95,7 +96,15 @@ export default function LoginPage() {
         </div>
 
         <div className="absolute bottom-gutter left-gutter z-10 flex items-center gap-xs">
-          <MaterialIcon name="auto_stories" fill className="text-3xl text-on-primary" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/95 p-1.5 shadow-lg">
+            <Image
+              src="/images/main-logo.png"
+              alt={brand.name}
+              width={40}
+              height={40}
+              className="h-full w-full object-contain"
+            />
+          </div>
           <span className="font-headline-md text-headline-md font-extrabold tracking-tight text-on-primary">
             {brand.shortName}
           </span>
@@ -106,15 +115,20 @@ export default function LoginPage() {
       <section className="flex w-full items-center justify-center bg-surface p-sm md:p-gutter lg:w-1/2">
         <div className="w-full max-w-md animate-fade-in-up">
           <div className="mb-lg flex items-center justify-between">
-            <div className="flex items-center gap-xs lg:hidden">
-              <MaterialIcon name="auto_stories" fill className="text-2xl text-primary" />
-              <span className="font-headline-sm text-headline-sm font-extrabold text-primary">
+            <div className="flex items-center gap-2">
+              <Image
+                src="/images/main-logo.png"
+                alt={brand.name}
+                width={48}
+                height={48}
+                className="h-12 w-12 object-contain"
+                priority
+              />
+              <span className="font-headline-sm text-headline-sm font-extrabold text-primary lg:hidden">
                 {brand.shortName}
               </span>
             </div>
-            <div className="ml-auto">
-              <LangSwitcher />
-            </div>
+            <LangSwitcher />
           </div>
 
           <div className="mb-lg">
