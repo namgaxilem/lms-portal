@@ -9,6 +9,7 @@ import { useTheme } from "@/components/providers/ThemeProvider";
 import { useT } from "@/i18n/I18nProvider";
 import { LangSwitcher } from "@/components/LangSwitcher";
 import { MaterialIcon } from "@/components/MaterialIcon";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { brand } from "@/config/brand";
 
@@ -22,13 +23,14 @@ const studentNav: NavItem[] = [
   { href: "/dashboard", icon: "dashboard", labelKey: "nav.dashboard" },
   { href: "/courses", icon: "school", labelKey: "nav.courses" },
   { href: "/grades", icon: "workspace_premium", labelKey: "nav.grades" },
+  { href: "/reports", icon: "monitoring", labelKey: "nav.reports" },
   { href: "/notifications", icon: "notifications", labelKey: "nav.notifications" },
   { href: "/messages", icon: "chat", labelKey: "nav.messages" },
 ];
 
+// Staff-only. The teacher/ route segment is guarded server-side (teacher/layout.tsx).
 const teacherNav: NavItem[] = [
   { href: "/teacher/grading", icon: "fact_check", labelKey: "nav.grading" },
-  { href: "/teacher/reports", icon: "monitoring", labelKey: "nav.reports" },
 ];
 
 const mobileNav: NavItem[] = [
@@ -69,21 +71,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const SidebarBody = (
     <>
-      <div className="flex items-center gap-3 p-gutter">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden">
+      <div className="flex items-center gap-2.5 px-6 py-6">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden">
           <Image
             src="/images/main-logo.png"
             alt={brand.name}
-            width={64}
-            height={64}
+            width={40}
+            height={40}
             className="h-full w-full object-contain"
           />
         </div>
         <div className="min-w-0">
-          <h1 className="truncate font-headline-sm text-headline-sm font-bold text-primary">
+          <h1 className="truncate font-headline-sm text-headline-sm font-bold leading-tight text-primary">
             {brand.name}
           </h1>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          <p className="text-[11px] font-medium text-on-surface-variant">
             {brand.tagline}
           </p>
         </div>
@@ -99,7 +101,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               onClick={() => setNavOpen(false)}
               className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors ${
                 active
-                  ? "border-r-4 border-primary bg-primary-container/10 font-bold text-primary"
+                  ? "bg-primary/5 font-bold text-primary"
                   : "text-on-surface-variant hover:bg-surface-container"
               }`}
             >
@@ -147,7 +149,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Top bar */}
       <header className="fixed top-0 right-0 left-0 z-30 flex h-16 items-center justify-between gap-3 bg-surface/80 px-4 backdrop-blur-md md:left-[280px] md:px-gutter">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center gap-2">
           <button
             aria-label="Menu"
             className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container md:hidden"
@@ -155,17 +157,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           >
             <MaterialIcon name="menu" />
           </button>
-          <div className="relative hidden sm:block">
-            <MaterialIcon
-              name="search"
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline"
-            />
-            <input
-              type="text"
-              placeholder={`${t("common.search")}…`}
-              className="w-44 rounded-full border-none bg-surface-container-low py-2 pl-10 pr-4 font-body-sm text-body-sm outline-none transition-all focus:w-64 focus:ring-2 focus:ring-primary lg:w-64"
-            />
+          <div className="hidden w-full max-w-md sm:block">
+            <GlobalSearch />
           </div>
+          <button
+            aria-label={t("search.title")}
+            className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container sm:hidden"
+            onClick={() => router.push("/search")}
+          >
+            <MaterialIcon name="search" />
+          </button>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
@@ -223,21 +224,33 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed bottom-0 left-0 z-40 flex w-full items-center justify-around rounded-t-xl bg-surface px-4 pb-4 pt-2 shadow-[0px_-4px_20px_rgba(55,48,163,0.08)] md:hidden">
+      <nav className="fixed bottom-0 left-0 z-40 flex w-full items-stretch border-t border-outline-variant/20 bg-surface px-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0px_-4px_20px_rgba(55,48,163,0.08)] md:hidden">
         {mobileNav.map((item) => {
           const active = isActive(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center rounded-xl px-3 py-1 transition-transform active:scale-95 ${
-                active
-                  ? "bg-secondary-container text-on-secondary-container"
-                  : "text-on-surface-variant"
-              }`}
+              className="flex flex-1 basis-0 flex-col items-center justify-center gap-0.5 py-0.5 transition-transform active:scale-95"
             >
-              <MaterialIcon name={item.icon} fill={active} />
-              <span className="mt-0.5 text-[10px] font-semibold">
+              <span
+                className={`flex h-7 w-12 items-center justify-center rounded-full transition-colors ${
+                  active
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "text-on-surface-variant"
+                }`}
+              >
+                <MaterialIcon
+                  name={item.icon}
+                  fill={active}
+                  className="!text-[22px]"
+                />
+              </span>
+              <span
+                className={`w-full truncate text-center text-[10px] font-semibold ${
+                  active ? "text-on-surface" : "text-on-surface-variant"
+                }`}
+              >
                 {t(item.labelKey)}
               </span>
             </Link>

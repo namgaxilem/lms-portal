@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Tooltip } from "antd";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
@@ -97,24 +98,44 @@ export default function DashboardPage() {
                 </p>
               ) : (
                 activity.map((n) => (
-                  <div key={n.id} className="flex items-start gap-4">
+                  <Link
+                    key={n.id}
+                    href="/notifications"
+                    className="group flex items-center gap-4 rounded-xl p-2 transition-colors hover:bg-surface-container"
+                  >
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-container/10 text-primary">
                       <MaterialIcon name="notifications" className="!text-lg" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-body-md text-body-md text-on-surface">
-                          <span className="font-bold">{n.subject}</span>
+                    <Tooltip
+                      placement="top"
+                      title={
+                        <div className="space-y-1">
+                          <p className="font-semibold">{n.subject}</p>
+                          {n.smallmessage && (
+                            <p className="text-xs opacity-90">{n.smallmessage}</p>
+                          )}
+                        </div>
+                      }
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="line-clamp-1 font-body-md text-body-md font-bold text-on-surface">
+                            {n.subject}
+                          </p>
+                          <span className="whitespace-nowrap text-xs text-outline">
+                            {timeAgo(n.timecreated)}
+                          </span>
+                        </div>
+                        <p className="line-clamp-2 font-body-sm text-body-sm text-on-surface-variant">
+                          {n.smallmessage}
                         </p>
-                        <span className="whitespace-nowrap text-xs text-outline">
-                          {timeAgo(n.timecreated)}
-                        </span>
                       </div>
-                      <p className="line-clamp-2 font-body-sm text-body-sm text-on-surface-variant">
-                        {n.smallmessage}
-                      </p>
-                    </div>
-                  </div>
+                    </Tooltip>
+                    <MaterialIcon
+                      name="chevron_right"
+                      className="shrink-0 text-outline transition-transform group-hover:translate-x-0.5"
+                    />
+                  </Link>
                 ))
               )}
             </div>

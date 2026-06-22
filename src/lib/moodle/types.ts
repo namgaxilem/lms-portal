@@ -68,6 +68,36 @@ export interface TimelineCourse {
   hidden?: boolean;
 }
 
+/** A person the current user is permitted to message (global search result). */
+export interface SearchUser {
+  id: number;
+  fullname: string;
+  profileimageurl?: string;
+}
+
+export interface SearchCourseHit {
+  id: number;
+  fullname: string;
+  shortname: string;
+  courseimage?: string;
+}
+
+export interface SearchNotificationHit {
+  id: number;
+  subject: string;
+  smallmessage: string;
+  timecreated: number;
+  read: boolean;
+}
+
+/** Grouped payload returned by /api/search. */
+export interface SearchResults {
+  query: string;
+  courses: SearchCourseHit[];
+  notifications: SearchNotificationHit[];
+  users: SearchUser[];
+}
+
 export interface CourseModuleContent {
   type: string;
   filename?: string;

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { Dropdown } from "antd";
+import { Dropdown, Tooltip } from "antd";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
@@ -69,12 +69,12 @@ export function NotificationBell() {
                   key={n.id}
                   href="/notifications"
                   onClick={() => setOpen(false)}
-                  className={`flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-container ${
+                  className={`flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-container ${
                     n.read ? "" : "bg-primary-container/5"
                   }`}
                 >
                   <div
-                    className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
                       n.read
                         ? "bg-surface-container text-on-surface-variant"
                         : "bg-primary-container/10 text-primary"
@@ -82,19 +82,31 @@ export function NotificationBell() {
                   >
                     <MaterialIcon name="campaign" className="!text-base" />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-1 font-body-sm text-body-sm font-semibold text-on-surface">
-                        {n.subject}
+                  <Tooltip
+                    placement="left"
+                    title={
+                      <div className="space-y-1">
+                        <p className="font-semibold">{n.subject}</p>
+                        {n.smallmessage && (
+                          <p className="text-xs opacity-90">{n.smallmessage}</p>
+                        )}
+                      </div>
+                    }
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="line-clamp-1 font-body-sm text-body-sm font-semibold text-on-surface">
+                          {n.subject}
+                        </p>
+                        <span className="shrink-0 text-[10px] text-outline">
+                          {timeAgo(n.timecreated)}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-xs text-on-surface-variant">
+                        {n.smallmessage}
                       </p>
-                      <span className="shrink-0 text-[10px] text-outline">
-                        {timeAgo(n.timecreated)}
-                      </span>
                     </div>
-                    <p className="line-clamp-2 text-xs text-on-surface-variant">
-                      {n.smallmessage}
-                    </p>
-                  </div>
+                  </Tooltip>
                 </Link>
               ))
             )}
