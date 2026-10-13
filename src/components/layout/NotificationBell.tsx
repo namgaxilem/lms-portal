@@ -1,20 +1,15 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
-import { Dropdown, Tooltip } from "antd";
+import { useEffect, useState } from "react";
+import { Dropdown } from "antd";
+import { ArrowRight, Bell, BellOff } from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { MaterialIcon } from "@/components/MaterialIcon";
+import { cn } from "@/components/ui/cn";
+import { timeAgo } from "@/lib/format";
+import { NOTIFICATIONS_CHANGED } from "@/lib/notifications";
 import type { NotificationsResult } from "@/lib/moodle/types";
-
-function timeAgo(unix: number) {
-  const m = (Date.now() / 1000 - unix) / 60;
-  if (m < 1) return "now";
-  if (m < 60) return `${Math.floor(m)}m`;
-  if (m < 1440) return `${Math.floor(m / 60)}h`;
-  return `${Math.floor(m / 1440)}d`;
-}
 
 /**
  * Top-bar notification bell. Clicking opens a dropdown preview of the most
@@ -25,10 +20,17 @@ export function NotificationBell() {
   const t = useT();
   const [open, setOpen] = useState(false);
 
-  const { data } = useMoodle<NotificationsResult>(
+  const { data, reload } = useMoodle<NotificationsResult>(
     "message_popup_get_popup_notifications",
     { useridto: user.id, newestfirst: 1, limit: 6, offset: 0 }
   );
+
+  // Refresh the badge/preview when a page marks notifications as read.
+  useEffect(() => {
+    const onChange = () => void reload();
+    window.addEventListener(NOTIFICATIONS_CHANGED, onChange);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, onChange);
+  }, [reload]);
 
   const notifications = data?.notifications ?? [];
   const unread = data?.unreadcount ?? 0;
@@ -40,73 +42,57 @@ export function NotificationBell() {
       trigger={["click"]}
       placement="bottomRight"
       popupRender={() => (
-        <div className="w-80 max-w-[90vw] overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-lowest card-elevation">
-          <div className="flex items-center justify-between border-b border-outline-variant/20 px-4 py-3">
-            <h3 className="font-body-md text-body-md font-bold text-on-surface">
-              {t("nav.notifications")}
-            </h3>
+        <div className="w-80 max-w-[92vw] overflow-hidden rounded-xl border border-line bg-surface shadow-pop">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <h3 className="text-sm font-semibold text-fg">{t("nav.notifications")}</h3>
             {unread > 0 && (
-              <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold text-on-error">
+              <span className="rounded-md bg-primary-soft px-1.5 text-xs font-medium tabular-nums text-primary-text">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
           </div>
 
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto p-1.5">
             {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-                <MaterialIcon
-                  name="notifications_off"
-                  className="!text-3xl text-outline-variant"
-                />
-                <p className="mt-2 text-xs text-on-surface-variant">
-                  {t("notifications.allCaughtUp")}
-                </p>
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center text-subtle">
+                <BellOff size={20} strokeWidth={1.75} />
+                <p className="text-[13px]">{t("notifications.allCaughtUp")}</p>
               </div>
             ) : (
               notifications.map((n) => (
                 <Link
                   key={n.id}
-                  href="/notifications"
+                  href={`/notifications/${n.id}`}
                   onClick={() => setOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-container ${
-                    n.read ? "" : "bg-primary-container/5"
-                  }`}
+                  title={n.smallmessage || n.subject}
+                  className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-surface-2"
                 >
-                  <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                      n.read
-                        ? "bg-surface-container text-on-surface-variant"
-                        : "bg-primary-container/10 text-primary"
-                    }`}
-                  >
-                    <MaterialIcon name="campaign" className="!text-base" />
-                  </div>
-                  <Tooltip
-                    placement="left"
-                    title={
-                      <div className="space-y-1">
-                        <p className="font-semibold">{n.subject}</p>
-                        {n.smallmessage && (
-                          <p className="text-xs opacity-90">{n.smallmessage}</p>
+                  <span
+                    className={cn(
+                      "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                      n.read ? "bg-transparent" : "bg-primary"
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p
+                        className={cn(
+                          "line-clamp-1 text-sm",
+                          n.read ? "text-muted" : "font-medium text-fg"
                         )}
-                      </div>
-                    }
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-1 font-body-sm text-body-sm font-semibold text-on-surface">
-                          {n.subject}
-                        </p>
-                        <span className="shrink-0 text-[10px] text-outline">
-                          {timeAgo(n.timecreated)}
-                        </span>
-                      </div>
-                      <p className="line-clamp-2 text-xs text-on-surface-variant">
+                      >
+                        {n.subject}
+                      </p>
+                      <span className="shrink-0 text-xs tabular-nums text-subtle">
+                        {timeAgo(n.timecreated)}
+                      </span>
+                    </div>
+                    {n.smallmessage && (
+                      <p className="mt-0.5 line-clamp-2 text-[13px] text-subtle">
                         {n.smallmessage}
                       </p>
-                    </div>
-                  </Tooltip>
+                    )}
+                  </div>
                 </Link>
               ))
             )}
@@ -115,24 +101,23 @@ export function NotificationBell() {
           <Link
             href="/notifications"
             onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1 border-t border-outline-variant/20 px-4 py-3 font-label-md text-label-md font-semibold text-primary transition-colors hover:bg-surface-container"
+            className="flex items-center justify-center gap-1.5 border-t border-line px-4 py-2.5 text-[13px] font-medium text-primary-text transition-colors hover:bg-surface-2"
           >
             {t("notifications.viewAll")}
-            <MaterialIcon name="arrow_forward" className="!text-sm" />
+            <ArrowRight size={14} />
           </Link>
         </div>
       )}
     >
       <button
+        type="button"
         aria-label={t("nav.notifications")}
-        className="relative rounded-full p-2 text-on-surface-variant transition-colors hover:text-primary"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       >
-        <MaterialIcon name="notifications" />
-        {unread ? (
-          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-on-error">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        ) : null}
+        <Bell size={18} strokeWidth={1.75} />
+        {unread > 0 && (
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-error ring-2 ring-surface" />
+        )}
       </button>
     </Dropdown>
   );

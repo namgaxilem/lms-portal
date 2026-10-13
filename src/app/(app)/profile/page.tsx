@@ -1,21 +1,41 @@
 "use client";
-import { Avatar } from "antd";
+import type { LucideIcon } from "lucide-react";
+import {
+  AtSign,
+  Building,
+  Building2,
+  CalendarDays,
+  Clock,
+  ExternalLink,
+  Mail,
+  MapPin,
+} from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { QueryState } from "@/components/ui/QueryState";
-import { MaterialIcon } from "@/components/MaterialIcon";
-import type { UserProfile } from "@/lib/moodle/types";
+import { UserAvatar } from "@/components/UserAvatar";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  PageHeader,
+  QueryState,
+  type Tone,
+} from "@/components/ui";
+import { accountRole } from "@/lib/format";
+import { MOODLE_BASE } from "@/lib/public-config";
+import type { AccountRole, UserProfile } from "@/lib/moodle/types";
 
 function fmtDate(ts?: number) {
   if (!ts) return null;
   return new Date(ts * 1000).toLocaleDateString();
 }
 
-const ROLE_BADGE: Record<string, string> = {
-  admin: "bg-primary text-on-primary",
-  teacher: "bg-secondary text-on-secondary",
-  student: "bg-surface-container-high text-on-surface-variant",
+const ROLE_TONE: Record<AccountRole, Tone> = {
+  admin: "primary",
+  teacher: "success",
+  student: "neutral",
 };
 
 export default function ProfilePage() {
@@ -28,103 +48,86 @@ export default function ProfilePage() {
   );
 
   const p = data?.[0];
-  const accountRole =
-    user.highestRole ?? (user.isSiteAdmin ? "admin" : "student");
-
-  const initials = user.fullname
-    .split(" ")
-    .map((s) => s[0])
-    .slice(-2)
-    .join("")
-    .toUpperCase();
-
+  const role = accountRole(user);
   const location = [p?.city, p?.country].filter(Boolean).join(", ");
 
-  const rows = [
-    { icon: "badge", label: t("profile.username"), value: p?.username ?? user.username },
-    { icon: "mail", label: t("profile.email"), value: p?.email },
-    { icon: "place", label: t("profile.location"), value: location },
-    { icon: "business", label: t("profile.department"), value: p?.department },
-    { icon: "apartment", label: t("profile.institution"), value: p?.institution },
-    { icon: "schedule", label: t("profile.lastAccess"), value: fmtDate(p?.lastaccess) },
-    { icon: "event", label: t("profile.memberSince"), value: fmtDate(p?.firstaccess) },
+  const rows: { icon: LucideIcon; label: string; value?: string | null }[] = [
+    { icon: AtSign, label: t("profile.username"), value: p?.username ?? user.username },
+    { icon: Mail, label: t("profile.email"), value: p?.email },
+    { icon: MapPin, label: t("profile.location"), value: location },
+    { icon: Building, label: t("profile.department"), value: p?.department },
+    { icon: Building2, label: t("profile.institution"), value: p?.institution },
+    { icon: Clock, label: t("profile.lastAccess"), value: fmtDate(p?.lastaccess) },
+    { icon: CalendarDays, label: t("profile.memberSince"), value: fmtDate(p?.firstaccess) },
   ];
 
+  // Only the site admin is sent to the Moodle website.
+  const moodleProfileUrl = MOODLE_BASE && user.isSiteAdmin
+    ? `${MOODLE_BASE}/user/profile.php?id=${user.id}`
+    : null;
+
   return (
-    <div className="space-y-gutter">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-container/10 text-primary">
-          <MaterialIcon name="account_circle" fill />
-        </div>
-        <h2 className="font-headline-md text-headline-md text-on-surface">
-          {t("profile.title")}
-        </h2>
-      </div>
+    <div>
+      <PageHeader title={t("profile.title")} />
 
       <QueryState loading={loading} error={error}>
-        <div className="grid grid-cols-1 gap-gutter lg:grid-cols-12">
-          {/* Identity card */}
-          <div className="overflow-hidden rounded-xl bg-surface-container-lowest card-elevation animate-fade-in-up lg:col-span-4">
-            <div className="h-24 bg-gradient-to-br from-primary to-secondary" />
-            <div className="-mt-12 flex flex-col items-center px-6 pb-6 text-center">
-              <Avatar
-                size={96}
-                src={(p?.profileimageurl || user.pictureurl) || undefined}
-                className="border-4 border-surface-container-lowest bg-primary-container text-2xl text-on-primary"
-              >
-                {initials}
-              </Avatar>
-              <h3 className="mt-3 font-headline-sm text-headline-sm text-on-surface">
-                {p?.fullname ?? user.fullname}
-              </h3>
-              <span
-                className={`mt-2 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold capitalize ${ROLE_BADGE[accountRole]}`}
-              >
-                <MaterialIcon
-                  name={
-                    accountRole === "admin"
-                      ? "shield_person"
-                      : accountRole === "teacher"
-                        ? "co_present"
-                        : "school"
-                  }
-                  className="!text-sm"
-                />
-                {t(`role.${accountRole}`)}
-              </span>
-              <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
-                {user.sitename}
-              </p>
+        <div className="space-y-6">
+          {/* Identity */}
+          <Card className="animate-fade-in-up p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <UserAvatar
+                name={p?.fullname ?? user.fullname}
+                id={user.id}
+                src={p?.profileimageurl || user.pictureurl || undefined}
+                size={64}
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-xl font-semibold tracking-tight text-fg">
+                  {p?.fullname ?? user.fullname}
+                </h2>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted">
+                  <span className="truncate">@{p?.username ?? user.username}</span>
+                  <Badge tone={ROLE_TONE[role]}>{t(`role.${role}`)}</Badge>
+                  {user.sitename && (
+                    <span className="truncate text-[13px] text-subtle">
+                      · {user.sitename}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {moodleProfileUrl && (
+                <Button
+                  variant="secondary"
+                  href={moodleProfileUrl}
+                  external
+                  className="self-start sm:self-center"
+                >
+                  {t("profile.openInMoodle")}
+                  <ExternalLink size={16} strokeWidth={1.75} />
+                </Button>
+              )}
             </div>
-          </div>
+          </Card>
 
           {/* Account details */}
-          <div className="rounded-xl bg-surface-container-lowest p-gutter card-elevation animate-fade-in-up lg:col-span-8">
-            <h3 className="mb-4 font-headline-sm text-headline-sm text-on-surface">
-              {t("profile.account")}
-            </h3>
-            <dl className="divide-y divide-outline-variant/20">
-              {rows.map((r) => (
-                <div key={r.label} className="flex items-center gap-4 py-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-container text-primary">
-                    <MaterialIcon name={r.icon} className="!text-lg" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <dt className="font-label-md text-label-md uppercase tracking-wider text-on-surface-variant">
-                      {r.label}
-                    </dt>
-                    <dd className="truncate font-body-md text-body-md text-on-surface">
-                      {r.value || (
-                        <span className="text-on-surface-variant/60">
-                          {t("profile.notProvided")}
-                        </span>
-                      )}
-                    </dd>
-                  </div>
+          <Card className="animate-fade-in-up">
+            <CardHeader title={t("profile.account")} />
+            <dl className="grid gap-x-8 gap-y-5 p-5 sm:grid-cols-2">
+              {rows.map(({ icon: Icon, label, value }) => (
+                <div key={label} className="min-w-0">
+                  <dt className="flex items-center gap-1.5 text-xs text-subtle">
+                    <Icon size={14} strokeWidth={1.75} />
+                    {label}
+                  </dt>
+                  <dd className="mt-1 truncate text-sm text-fg">
+                    {value || (
+                      <span className="text-subtle">{t("profile.notProvided")}</span>
+                    )}
+                  </dd>
                 </div>
               ))}
             </dl>
-          </div>
+          </Card>
         </div>
       </QueryState>
     </div>

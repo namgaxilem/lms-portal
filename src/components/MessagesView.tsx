@@ -1,20 +1,44 @@
 "use client";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App } from "antd";
+import {
+  ArrowLeft,
+  Loader2,
+  MessageCircle,
+  Search,
+  SendHorizontal,
+} from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { moodleClient, useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { MaterialIcon } from "@/components/MaterialIcon";
 import { UserAvatar } from "@/components/UserAvatar";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Skeleton,
+  cn,
+  inputClass,
+} from "@/components/ui";
+import { isToday, stripHtml, timeAgo } from "@/lib/format";
 import type {
   ConversationMessagesResult,
   ConversationsResult,
   UserProfile,
 } from "@/lib/moodle/types";
 
-function stripHtml(html: string) {
-  return html.replace(/<[^>]*>/g, "").trim();
+function dayKey(unix: number) {
+  return new Date(unix * 1000).toDateString();
+}
+
+function clockTime(unix: number) {
+  return new Date(unix * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /**
@@ -30,6 +54,7 @@ export function MessagesView({ targetUserId }: { targetUserId?: number }) {
   const { message } = App.useApp();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [filter, setFilter] = useState("");
 
   const convs = useMoodle<ConversationsResult>(
     "core_message_get_conversations",
@@ -54,7 +79,11 @@ export function MessagesView({ targetUserId }: { targetUserId?: number }) {
   const recipient =
     existing?.members.find((m) => m.id === targetUserId) ??
     (profile.data?.[0]
-      ? { id: targetUserId!, fullname: profile.data[0].fullname }
+      ? {
+          id: targetUserId!,
+          fullname: profile.data[0].fullname,
+          profileimageurl: profile.data[0].profileimageurl ?? "",
+        }
       : undefined);
 
   const thread = useMoodle<ConversationMessagesResult>(
@@ -87,186 +116,255 @@ export function MessagesView({ targetUserId }: { targetUserId?: number }) {
   }
 
   const messages = thread.data?.messages ?? [];
+  const q = filter.trim().toLowerCase();
+
+  const rows = conversations
+    .map((c) => {
+      const other = c.members.find((m) => m.id !== user.id);
+      const title = c.name || other?.fullname || t("messages.conversation");
+      return { c, other, title };
+    })
+    .filter((r) => !q || r.title.toLowerCase().includes(q));
 
   return (
-    <div className="space-y-gutter">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-container/10 text-primary">
-          <MaterialIcon name="forum" fill />
+    <Card className="grid h-[calc(100vh-10rem)] min-h-[520px] grid-cols-1 overflow-hidden md:grid-cols-[300px_1fr]">
+      {/* Conversation list */}
+      <div
+        className={cn(
+          "min-h-0 flex-col border-line md:border-r",
+          targetUserId != null ? "hidden md:flex" : "flex"
+        )}
+      >
+        <div className="space-y-3 border-b border-line p-4">
+          <h1 className="text-base font-semibold text-fg">{t("nav.messages")}</h1>
+          <Input
+            icon={Search}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={t("common.filter")}
+            aria-label={t("common.filter")}
+            className="h-9"
+          />
         </div>
-        <h2 className="font-headline-md text-headline-md text-on-surface">
-          {t("nav.messages")}
-        </h2>
-      </div>
 
-      <div className="grid h-[72vh] grid-cols-1 overflow-hidden rounded-xl bg-surface-container-lowest card-elevation md:grid-cols-[320px_1fr]">
-        {/* Conversation list */}
-        <div
-          className={`flex-col overflow-y-auto border-r border-outline-variant/30 ${
-            targetUserId != null ? "hidden md:flex" : "flex"
-          }`}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {convs.loading ? (
-            <div className="p-6 text-center font-body-sm text-body-sm text-on-surface-variant">
-              {t("common.loading")}
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-              <MaterialIcon
-                name="chat_bubble"
-                className="!text-4xl text-outline-variant"
-              />
-              <p className="mt-2 font-body-sm text-body-sm text-on-surface-variant">
-                {t("messages.noConversations")}
-              </p>
-            </div>
-          ) : (
             <div className="space-y-1 p-2">
-              {conversations.map((c) => {
-                const other = c.members.find((m) => m.id !== user.id);
-                const title =
-                  c.name || other?.fullname || t("messages.conversation");
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-2">
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-1/2" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : rows.length === 0 ? (
+            <EmptyState
+              compact
+              icon={MessageCircle}
+              title={t("messages.noConversations")}
+            />
+          ) : (
+            <ul className="space-y-0.5 p-2">
+              {rows.map(({ c, other, title }) => {
                 const isActive =
-                  c.id === activeConvId ||
-                  (!!other && other.id === targetUserId);
+                  c.id === activeConvId || (!!other && other.id === targetUserId);
+                const last = c.messages[0];
                 return (
-                  <button
-                    key={c.id}
-                    onClick={() =>
-                      router.push(`/messages/${other?.id ?? c.id}`)
-                    }
-                    className={`flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all ${
-                      isActive
-                        ? "bg-primary-container/10"
-                        : "hover:bg-surface-container"
-                    }`}
-                  >
-                    <UserAvatar name={title} id={other?.id ?? c.id} size={44} />
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-body-md font-semibold text-on-surface">
-                        {title}
-                      </h3>
-                      <p className="truncate font-body-sm text-body-sm text-on-surface-variant">
-                        {c.messages[0]
-                          ? stripHtml(c.messages[0].text).slice(0, 40)
-                          : "—"}
-                      </p>
-                    </div>
-                    {c.unreadcount ? (
-                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-on-primary">
-                        {c.unreadcount}
-                      </span>
-                    ) : null}
-                  </button>
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/messages/${other?.id ?? c.id}`)}
+                      aria-current={isActive ? "true" : undefined}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-left transition-colors",
+                        isActive ? "bg-surface-2" : "hover:bg-surface-2"
+                      )}
+                    >
+                      <UserAvatar
+                        name={title}
+                        id={other?.id ?? c.id}
+                        src={other?.profileimageurl || undefined}
+                        size={36}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="truncate text-sm font-medium text-fg">
+                            {title}
+                          </p>
+                          {last && (
+                            <span className="shrink-0 text-2xs tabular-nums text-subtle">
+                              {timeAgo(last.timecreated)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="line-clamp-1 text-[13px] text-subtle">
+                            {last ? stripHtml(last.text) : "—"}
+                          </p>
+                          {c.unreadcount ? (
+                            <Badge
+                              tone="primary"
+                              className="h-5 shrink-0 px-1.5 tabular-nums"
+                            >
+                              {c.unreadcount}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                  </li>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        {/* Thread */}
-        <div
-          className={`flex-col bg-surface-container-low/30 ${
-            targetUserId == null ? "hidden md:flex" : "flex"
-          }`}
-        >
-          {targetUserId == null ? (
-            <div className="flex flex-1 flex-col items-center justify-center text-center">
-              <MaterialIcon
-                name="mark_unread_chat_alt"
-                className="!text-5xl text-outline-variant"
-              />
-              <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-                {t("messages.selectConversation")}
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* Header */}
-              <div className="flex items-center gap-3 border-b border-outline-variant/30 bg-surface px-gutter py-3">
-                <button
-                  className="text-on-surface-variant md:hidden"
-                  onClick={() => router.push("/messages")}
-                  aria-label={t("scorm.back")}
-                >
-                  <MaterialIcon name="arrow_back" />
-                </button>
-                <UserAvatar
-                  name={recipient?.fullname ?? "?"}
-                  id={recipient?.id ?? 0}
-                  size={36}
-                />
-                <h3 className="font-headline-sm text-headline-sm text-on-surface">
-                  {recipient?.fullname ??
-                    (convs.loading || profile.loading
-                      ? t("common.loading")
-                      : t("messages.conversation"))}
-                </h3>
-              </div>
-
-              {/* Canvas */}
-              <div className="flex flex-1 flex-col-reverse gap-3 overflow-y-auto p-gutter">
-                {thread.loading ? (
-                  <div className="text-center font-body-sm text-body-sm text-on-surface-variant">
-                    {t("common.loading")}
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="m-auto text-center font-body-sm text-body-sm text-on-surface-variant">
-                    {t("messages.startConversation")}
-                  </div>
-                ) : (
-                  messages
-                    .slice()
-                    .reverse()
-                    .map((m) => {
-                      const mine = m.useridfrom === user.id;
-                      return (
-                        <div
-                          key={m.id}
-                          className={`max-w-[78%] animate-fade-in-up px-4 py-2.5 font-body-sm text-body-sm shadow-sm ${
-                            mine
-                              ? "self-end rounded-2xl rounded-br-sm bg-primary text-on-primary"
-                              : "self-start rounded-2xl rounded-bl-sm bg-surface-container-high text-on-surface"
-                          }`}
-                        >
-                          {stripHtml(m.text)}
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-
-              {/* Composer */}
-              <div className="border-t border-outline-variant/30 bg-surface p-3">
-                <div className="flex items-center gap-2 rounded-xl border border-transparent bg-surface-container-low px-3 py-1.5 transition-all focus-within:border-primary focus-within:bg-white">
-                  <input
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && send()}
-                    placeholder={
-                      recipient
-                        ? t("messages.placeholder", { name: recipient.fullname })
-                        : t("messages.typeMessage")
-                    }
-                    className="flex-grow border-none bg-transparent py-2 font-body-sm text-body-sm outline-none"
-                  />
-                  <button
-                    onClick={send}
-                    disabled={!recipient || !draft.trim() || sending}
-                    aria-label={t("messages.send")}
-                    className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-on-primary transition-transform hover:bg-primary-container active:scale-95 disabled:opacity-50"
-                  >
-                    <MaterialIcon
-                      name={sending ? "progress_activity" : "send"}
-                      className={sending ? "animate-spin" : ""}
-                    />
-                  </button>
-                </div>
-              </div>
-            </>
+            </ul>
           )}
         </div>
       </div>
-    </div>
+
+      {/* Thread */}
+      <div
+        className={cn(
+          "min-h-0 flex-col",
+          targetUserId == null ? "hidden md:flex" : "flex"
+        )}
+      >
+        {targetUserId == null ? (
+          <div className="flex flex-1 items-center justify-center bg-canvas">
+            <EmptyState
+              icon={MessageCircle}
+              title={
+                !convs.loading && conversations.length === 0
+                  ? t("messages.noConversations")
+                  : t("messages.selectConversation")
+              }
+            />
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="-ml-1.5 md:hidden"
+                onClick={() => router.push("/messages")}
+                aria-label={t("common.back")}
+              >
+                <ArrowLeft size={18} strokeWidth={1.75} />
+              </Button>
+              <UserAvatar
+                name={recipient?.fullname ?? "?"}
+                id={recipient?.id ?? 0}
+                src={recipient?.profileimageurl || undefined}
+                size={32}
+              />
+              <h2 className="truncate text-sm font-semibold text-fg">
+                {recipient?.fullname ??
+                  (convs.loading || profile.loading
+                    ? t("common.loading")
+                    : t("messages.conversation"))}
+              </h2>
+            </div>
+
+            {/* Messages — column-reverse keeps the view pinned to the newest */}
+            <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto bg-canvas px-4 py-5">
+              {thread.loading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-9 w-1/2 rounded-2xl" />
+                  <Skeleton className="ml-auto h-9 w-2/5 rounded-2xl" />
+                  <Skeleton className="h-9 w-1/3 rounded-2xl" />
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="m-auto">
+                  <EmptyState
+                    compact
+                    icon={MessageCircle}
+                    title={t("messages.startConversation")}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {messages.map((m, i) => {
+                    const mine = m.useridfrom === user.id;
+                    const newDay =
+                      i === 0 ||
+                      dayKey(messages[i - 1].timecreated) !== dayKey(m.timecreated);
+                    return (
+                      <Fragment key={m.id}>
+                        {newDay && (
+                          <div className="my-3 flex items-center gap-3 text-2xs font-medium text-subtle">
+                            <span className="h-px flex-1 bg-line" />
+                            {isToday(m.timecreated)
+                              ? t("common.today")
+                              : new Date(m.timecreated * 1000).toLocaleDateString()}
+                            <span className="h-px flex-1 bg-line" />
+                          </div>
+                        )}
+                        <div
+                          className={cn(
+                            "flex max-w-[75%] flex-col",
+                            mine ? "ml-auto items-end" : "items-start"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
+                              mine
+                                ? "rounded-br-md bg-primary text-primary-fg"
+                                : "rounded-bl-md border border-line bg-surface text-fg"
+                            )}
+                          >
+                            {stripHtml(m.text)}
+                          </div>
+                          <span className="mt-0.5 px-1 text-2xs tabular-nums text-subtle">
+                            {clockTime(m.timecreated)}
+                          </span>
+                        </div>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Composer */}
+            <form
+              className="flex shrink-0 items-center gap-2 border-t border-line p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+            >
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={
+                  recipient
+                    ? t("messages.placeholder", { name: recipient.fullname })
+                    : t("messages.typeMessage")
+                }
+                aria-label={t("messages.typeMessage")}
+                className={cn(inputClass, "flex-1")}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="h-10 w-10"
+                disabled={!recipient || !draft.trim() || sending}
+                aria-label={t("messages.send")}
+              >
+                {sending ? (
+                  <Loader2 size={18} strokeWidth={1.75} className="animate-spin" />
+                ) : (
+                  <SendHorizontal size={18} strokeWidth={1.75} />
+                )}
+              </Button>
+            </form>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }

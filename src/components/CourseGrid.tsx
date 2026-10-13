@@ -1,14 +1,20 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
+import { GraduationCap } from "lucide-react";
 import { useT, useLocale } from "@/i18n/I18nProvider";
-import { MaterialIcon } from "@/components/MaterialIcon";
+import { Badge, Card, EmptyState, FallbackImg, Progress, cn } from "@/components/ui";
+import { initials } from "@/lib/format";
 import type { TimelineCourse } from "@/lib/moodle/types";
 
-const GRADIENTS = [
-  "from-primary to-tertiary",
-  "from-secondary to-primary",
-  "from-tertiary to-primary-container",
-  "from-primary-container to-secondary",
+/** Soft two-stop gradients for courses without a (loadable) image. */
+const PLACEHOLDERS = [
+  "from-[#1e3a8a] to-[#0ea5e9]",
+  "from-[#0369a1] to-[#22d3ee]",
+  "from-[#4338ca] to-[#a78bfa]",
+  "from-[#047857] to-[#38bdf8]",
+  "from-[#b45309] to-[#f59e0b]",
+  "from-[#be185d] to-[#f472b6]",
 ];
 
 /** Moodle returns Unix seconds; 0 means "not set". */
@@ -20,110 +26,162 @@ function formatDate(unix: number | undefined, locale: string) {
   );
 }
 
-export function CourseGrid({ courses }: { courses: TimelineCourse[] }) {
+type Status = "inProgress" | "completed" | "upcoming";
+
+function courseStatus(c: TimelineCourse, pct: number | null): Status {
+  if (pct !== null && pct >= 100) return "completed";
+  if (c.startdate && c.startdate > Date.now() / 1000) return "upcoming";
+  return "inProgress";
+}
+
+/**
+ * Course cover: Moodle image, or a colored initials tile when missing/unloadable.
+ * Wide images fill the frame; portrait/square ones (book-cover style course
+ * images are common) are shown whole over a blurred copy instead of cropped.
+ */
+export function CourseThumb({ course, className }: { course: TimelineCourse; className?: string }) {
+  const [tall, setTall] = useState(false);
+  const onLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+    setTall(!!h && w / h < 1.3);
+  };
+  return (
+    <div className={cn("relative overflow-hidden bg-surface-2", className)}>
+      {tall && course.courseimage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={course.courseimage}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-2xl"
+        />
+      )}
+      <FallbackImg
+        src={course.courseimage}
+        onLoad={onLoad}
+        className={cn(
+          "relative h-full w-full",
+          tall ? "object-contain py-2 drop-shadow-md" : "object-cover"
+        )}
+        fallback={
+          <div
+            className={cn(
+              "relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br",
+              PLACEHOLDERS[course.id % PLACEHOLDERS.length]
+            )}
+          >
+            {/* Decorative rings so the tile isn't a flat block. */}
+            <span className="absolute -right-8 -top-8 h-32 w-32 rounded-full border-[18px] border-white/10" />
+            <span className="absolute -bottom-10 -left-6 h-28 w-28 rounded-full bg-white/10" />
+            <span className="relative text-3xl font-semibold tracking-tight text-white/90 drop-shadow-sm">
+              {initials(course.fullname || course.shortname)}
+            </span>
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+export function CourseGrid({
+  courses,
+  layout = "grid",
+}: {
+  courses: TimelineCourse[];
+  layout?: "grid" | "list";
+}) {
   const t = useT();
   const { locale } = useLocale();
 
   if (!courses.length) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest p-lg text-center card-elevation">
-        <MaterialIcon name="school" className="!text-5xl text-outline-variant" />
-        <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-          {t("courses.noCourses")}
-        </p>
-      </div>
+      <Card>
+        <EmptyState icon={GraduationCap} title={t("courses.noCourses")} />
+      </Card>
     );
   }
 
+  const list = layout === "list";
+
   return (
-    <div className="grid grid-cols-1 gap-gutter sm:grid-cols-2 xl:grid-cols-3">
-      {courses.map((c, i) => {
-        const pct =
-          typeof c.progress === "number" ? Math.round(c.progress) : null;
+    <div
+      className={
+        list
+          ? "space-y-3"
+          : "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      }
+    >
+      {courses.map((c) => {
+        const pct = typeof c.progress === "number" ? Math.round(c.progress) : null;
+        const status = courseStatus(c, pct);
         const startDate = formatDate(c.startdate, locale);
         const endDate = formatDate(c.enddate, locale);
+        const dates = [startDate, endDate].filter(Boolean).join(" – ");
+
+        const badge =
+          status === "completed" ? (
+            <Badge tone="success">{t("courses.completed")}</Badge>
+          ) : status === "upcoming" ? (
+            <Badge tone="neutral">{t("courses.upcoming")}</Badge>
+          ) : (
+            <Badge tone="primary">{t("courses.inProgress")}</Badge>
+          );
+
+        const progress = pct !== null && (
+          <div className="flex items-center gap-3">
+            <Progress
+              value={pct}
+              tone={status === "completed" ? "success" : "primary"}
+              className="flex-1"
+            />
+            <span className="w-9 text-right text-xs tabular-nums text-muted">
+              {pct}%
+            </span>
+          </div>
+        );
+
         return (
           <Link
             key={c.id}
             href={`/courses/${c.id}`}
-            className="lift group overflow-hidden rounded-xl bg-surface-container-lowest card-elevation animate-fade-in-up"
-            style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
+            className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            <div className="relative h-56 w-full overflow-hidden">
-              {c.courseimage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={c.courseimage}
-                  alt=""
-                  className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                />
-              ) : (
-                <div
-                  className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
-                >
-                  <span className="px-4 text-center font-headline-sm text-headline-sm text-white">
-                    {c.shortname}
-                  </span>
-                </div>
+            <Card
+              interactive
+              className={cn(
+                "h-full overflow-hidden",
+                list && "flex items-stretch"
               )}
-              <div className="absolute right-4 top-4 rounded-full bg-primary px-3 py-1 text-xs font-bold text-on-primary shadow-sm">
-                {pct !== null && pct < 100
-                  ? t("courses.inProgress")
-                  : t("courses.enrolled")}
-              </div>
-            </div>
-
-            <div className="space-y-3 p-6">
-              <div>
-                <h4 className="line-clamp-2 font-headline-sm text-headline-sm text-on-surface">
-                  {c.fullname}
-                </h4>
-                <p className="mt-1 line-clamp-1 font-body-sm text-body-sm text-on-surface-variant">
-                  {c.shortname}
-                </p>
-              </div>
-
-              {(startDate || endDate) && (
-                <div className="space-y-2 border-t border-outline-variant/20 pt-3">
-                  {startDate && (
-                    <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                      <MaterialIcon name="event_available" className="!text-sm" />
-                      <span>
-                        {t("courses.starts")}: {startDate}
-                      </span>
-                    </div>
-                  )}
-                  {endDate && (
-                    <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                      <MaterialIcon name="event_busy" className="!text-sm" />
-                      <span>
-                        {t("courses.ends")}: {endDate}
-                      </span>
-                    </div>
+            >
+              <CourseThumb
+                course={c}
+                className={
+                  list
+                    ? "aspect-video w-28 shrink-0 border-r border-line sm:w-44"
+                    : "aspect-video w-full border-b border-line"
+                }
+              />
+              <div
+                className={cn(
+                  "flex min-w-0 flex-1 flex-col gap-3 p-4",
+                  list && "justify-center"
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-subtle">{c.shortname}</p>
+                  <h3 className="mt-0.5 line-clamp-2 text-sm font-medium text-fg">
+                    {c.fullname}
+                  </h3>
+                </div>
+                {progress}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {badge}
+                  {dates && (
+                    <span className="text-xs tabular-nums text-subtle">{dates}</span>
                   )}
                 </div>
-              )}
-
-              {pct !== null && (
-                <div className="space-y-2 border-t border-outline-variant/20 pt-3">
-                  <div className="flex justify-between text-xs font-bold text-outline">
-                    <span>{t("courses.progress")}</span>
-                    <span>{pct}%</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container-high">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all duration-700"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-bold text-on-primary transition-opacity group-hover:opacity-90">
-                <MaterialIcon name="play_circle" />
-                {t("courses.resume")}
               </div>
-            </div>
+            </Card>
           </Link>
         );
       })}

@@ -7,6 +7,6 @@ import { brand } from "./brand";
  * `@theme inline` mapping that turns these into Tailwind color utilities.
  */
 export function BrandStyle() {
-  const css = `:root{--brand-primary:${brand.colors.primary};--brand-secondary:${brand.colors.secondary};--brand-success:${brand.colors.success};--brand-warning:${brand.colors.warning};--brand-error:${brand.colors.error};}`;
+  const css = `:root{--brand-primary:${brand.colors.primary};--brand-primary-dark:${brand.colors.primaryDark};--brand-secondary:${brand.colors.secondary};--brand-success:${brand.colors.success};--brand-warning:${brand.colors.warning};--brand-error:${brand.colors.error};}`;
   return <style id="brand-vars" dangerouslySetInnerHTML={{ __html: css }} />;
 }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
+import { accountRole, isStaffRole } from "@/lib/format";
 
 /**
  * Guards every /teacher/* page. Only users whose detected account role is
@@ -13,9 +14,8 @@ export default async function TeacherLayout({
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
-  const role = user?.highestRole ?? (user?.isSiteAdmin ? "admin" : "student");
 
-  if (role !== "admin" && role !== "teacher") redirect("/dashboard");
+  if (!isStaffRole(accountRole(user))) redirect("/dashboard");
 
   return <>{children}</>;
 }

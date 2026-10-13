@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
-import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import AntdProvider from "@/components/providers/AntdProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
@@ -11,13 +11,6 @@ import { BrandStyle } from "@/config/BrandStyle";
 const inter = Inter({
   subsets: ["latin", "vietnamese"],
   variable: "--font-inter",
-  display: "swap",
-});
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin", "vietnamese"],
-  weight: ["600", "700", "800"],
-  variable: "--font-jakarta",
   display: "swap",
 });
 
@@ -50,7 +43,13 @@ export const metadata: Metadata = {
   icons: {
     icon: brand.favicon,
   },
-  themeColor: brand.seo.themeColor,
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
+  ],
 };
 
 export default async function RootLayout({
@@ -63,24 +62,11 @@ export default async function RootLayout({
   return (
     <html
       lang={locale}
-      className={`${inter.variable} ${jakarta.variable} h-full antialiased`}
+      className={`${inter.variable} h-full antialiased`}
+      // The theme script below adds `dark` before hydration.
+      suppressHydrationWarning
     >
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        {/* Material Symbols icon font. next/font can't host this variable icon
-            font cleanly, so it's linked directly. display=block avoids a flash
-            of the raw ligature text while the font loads. */}
-        {/* eslint-disable @next/next/no-page-custom-font, @next/next/google-font-display */}
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
-        />
-        {/* eslint-enable @next/next/no-page-custom-font, @next/next/google-font-display */}
         {/* Apply the saved (or system) theme before paint to avoid a flash. */}
         <script
           dangerouslySetInnerHTML={{
@@ -88,7 +74,8 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full bg-background text-on-background">
+      {/* Browser extensions often inject attributes on <body>. */}
+      <body className="min-h-full bg-canvas text-fg" suppressHydrationWarning>
         <BrandStyle />
         <ThemeProvider>
           <I18nProvider initialLocale={locale}>

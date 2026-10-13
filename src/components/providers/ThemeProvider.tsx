@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "theme";
 
@@ -19,6 +19,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [dark, setDark] = useState(false);
+  const hydrated = useRef(false);
 
   // Read the persisted (or system) preference once on mount.
   useEffect(() => {
@@ -30,7 +31,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Reflect the preference onto the document + storage whenever it changes.
+  // Skipped on the first run so the pre-paint class isn't wiped before the
+  // saved preference is read.
   useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true;
+      return;
+    }
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem(STORAGE_KEY, dark ? "dark" : "light");
   }, [dark]);

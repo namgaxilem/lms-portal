@@ -1,19 +1,75 @@
 "use client";
 import Link from "next/link";
-import { Tooltip } from "antd";
+import Image from "next/image";
+import studyPhoto from "../../../../public/images/photos/study.webp";
+import {
+  Award,
+  Bell,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  GraduationCap,
+  MessageSquare,
+  PlayCircle,
+  TrendingUp,
+} from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
-import { useT } from "@/i18n/I18nProvider";
-import { QueryState } from "@/components/ui/QueryState";
-import { CourseGrid } from "@/components/CourseGrid";
-import { MaterialIcon } from "@/components/MaterialIcon";
+import { useLocale, useT } from "@/i18n/I18nProvider";
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Progress,
+  QueryState,
+  Skeleton,
+  StatCard,
+  IconTile,
+  type Tone,
+} from "@/components/ui";
+import { CourseGrid, CourseThumb } from "@/components/CourseGrid";
+import { timeAgo } from "@/lib/format";
 import type { NotificationsResult, TimelineCourse } from "@/lib/moodle/types";
 
-function timeAgo(unix: number) {
-  const m = Math.floor(Date.now() / 1000 - unix) / 60;
-  if (m < 60) return `${Math.max(1, Math.floor(m))}m`;
-  if (m < 1440) return `${Math.floor(m / 60)}h`;
-  return `${Math.floor(m / 1440)}d`;
+/** Moodle may include `lastaccess` on timeline courses; it isn't in the shared type. */
+type CourseWithAccess = TimelineCourse & { lastaccess?: number | null };
+
+function isCompleted(c: TimelineCourse) {
+  return typeof c.progress === "number" && Math.round(c.progress) === 100;
+}
+
+function greetingKey() {
+  const h = new Date().getHours();
+  if (h < 12) return "dashboard.greetingMorning";
+  if (h < 18) return "dashboard.greetingAfternoon";
+  return "dashboard.greetingEvening";
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-4 rounded-xl border border-line bg-surface p-4">
+        <Skeleton className="aspect-video w-32 shrink-0 sm:w-48" />
+        <div className="flex-1 space-y-3 py-1">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-1.5 w-full" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+            <Skeleton className="aspect-video w-full rounded-none" />
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-1.5 w-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -24,168 +80,275 @@ export default function DashboardPage() {
     "core_course_get_enrolled_courses_by_timeline_classification",
     { classification: "inprogress", limit: 0, offset: 0, sort: "fullname" }
   );
+  // All enrolments — only used for the enrolled / completed stat counts.
+  const allCourses = useMoodle<{ courses: TimelineCourse[] }>(
+    "core_course_get_enrolled_courses_by_timeline_classification",
+    { classification: "all", limit: 0, offset: 0, sort: "fullname" }
+  );
   const notifs = useMoodle<NotificationsResult>(
     "message_popup_get_popup_notifications",
     { useridto: user.id, newestfirst: 1, limit: 5, offset: 0 }
   );
 
-  const inProgress = courses.data?.courses ?? [];
+  const inProgress = (courses.data?.courses ?? []) as CourseWithAccess[];
+  const all = allCourses.data?.courses ?? [];
   const activity = notifs.data?.notifications ?? [];
-  const firstName = user.fullname.split(" ").pop() ?? user.fullname;
+  const firstName = user.fullname.split(" ").pop() || user.fullname;
+  const { locale } = useLocale();
+  const today = new Date().toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  // Most recently accessed unfinished course (falls back to list order).
+  const resume = inProgress
+    .filter((c) => !isCompleted(c))
+    .reduce<CourseWithAccess | null>(
+      (best, c) =>
+        !best || (c.lastaccess ?? 0) > (best.lastaccess ?? 0) ? c : best,
+      null
+    );
+  const resumePct =
+    resume && typeof resume.progress === "number" ? Math.round(resume.progress) : null;
+
+  const dash = (loading: boolean, v: number | undefined) =>
+    loading || v === undefined ? "–" : v;
+
+  const stats = [
+    {
+      label: t("dashboard.statCourses"),
+      value: dash(allCourses.loading, allCourses.data ? all.length : undefined),
+      icon: BookOpen,
+      tone: "primary" as Tone,
+    },
+    {
+      label: t("dashboard.statInProgress"),
+      value: dash(courses.loading, courses.data ? inProgress.length : undefined),
+      icon: TrendingUp,
+      tone: "accent" as Tone,
+    },
+    {
+      label: t("dashboard.statCompleted"),
+      value: dash(
+        allCourses.loading,
+        allCourses.data ? all.filter(isCompleted).length : undefined
+      ),
+      icon: CheckCircle2,
+      tone: "success" as Tone,
+    },
+    {
+      label: t("dashboard.statUnread"),
+      value: dash(notifs.loading, notifs.data?.unreadcount),
+      icon: Bell,
+      tone: "warning" as Tone,
+    },
+  ];
 
   const quickLinks = [
-    { href: "/courses", icon: "school", label: t("nav.courses") },
-    { href: "/grades", icon: "workspace_premium", label: t("nav.grades") },
-    { href: "/messages", icon: "chat", label: t("nav.messages") },
-    { href: "/notifications", icon: "notifications", label: t("nav.notifications") },
+    { href: "/courses", icon: GraduationCap, label: t("nav.courses"), tone: "primary" as Tone },
+    { href: "/grades", icon: Award, label: t("nav.grades"), tone: "success" as Tone },
+    { href: "/messages", icon: MessageSquare, label: t("nav.messages"), tone: "accent" as Tone },
+    { href: "/notifications", icon: Bell, label: t("nav.notifications"), tone: "warning" as Tone },
   ];
 
   return (
-    <div className="space-y-lg">
-      {/* Hero */}
-      <section className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-        <div>
-          <h2 className="mb-2 font-display-lg-mobile text-display-lg-mobile text-primary md:font-display-lg md:text-display-lg">
-            {t("dashboard.welcome", { name: firstName })}
-          </h2>
-          <p className="max-w-2xl font-body-lg text-body-lg text-on-surface-variant">
-            {t("dashboard.inProgress")}
-          </p>
+    <div className="animate-fade-in-up">
+      {/* Welcome banner */}
+      <section className="bg-mesh relative mb-6 overflow-hidden rounded-2xl border border-line bg-surface lg:mb-8">
+        <div className="relative z-10 max-w-xl p-6 sm:p-8">
+          <p className="text-[13px] font-medium capitalize text-primary-text">{today}</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+            {t(greetingKey(), { name: firstName })}
+          </h1>
+          <p className="mt-2 text-sm text-muted">{t("dashboard.inProgress")}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button href={resume ? `/courses/${resume.id}` : "/courses"}>
+              <PlayCircle size={16} />
+              {t("dashboard.continueLearning")}
+            </Button>
+            <Button href="/courses" variant="secondary">
+              <BookOpen size={16} />
+              {t("nav.courses")}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-4 rounded-xl bg-surface-container-lowest p-4 card-elevation">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container">
-            <MaterialIcon name="local_fire_department" fill />
-          </div>
-          <div>
-            <p className="text-[20px] font-bold text-on-surface">
-              {inProgress.length}
-            </p>
-            <p className="font-label-md text-label-md text-outline">
-              {t("dashboard.coursesInProgress")}
-            </p>
-          </div>
+        <div className="absolute inset-y-0 right-0 hidden w-[42%] md:block">
+          <Image
+            src={studyPhoto}
+            alt=""
+            fill
+            priority
+            placeholder="blur"
+            sizes="(min-width: 768px) 40vw, 0px"
+            className="object-cover [mask-image:linear-gradient(to_right,transparent,black_45%)]"
+          />
         </div>
       </section>
 
-      {/* Bento grid */}
-      <div className="grid grid-cols-1 gap-gutter lg:grid-cols-12">
-        {/* Left */}
-        <div className="space-y-gutter lg:col-span-8">
-          <div className="flex items-center justify-between">
-            <h3 className="font-headline-md text-headline-md text-on-surface">
-              {t("dashboard.continueLearning")}
-            </h3>
-            <Link
-              href="/courses"
-              className="font-label-md text-label-md text-primary hover:underline"
-            >
-              {t("dashboard.viewAll")}
-            </Link>
-          </div>
+      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        {stats.map((s) => (
+          <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} tone={s.tone} />
+        ))}
+      </div>
 
-          <QueryState loading={courses.loading} error={courses.error}>
-            <CourseGrid courses={inProgress} />
-          </QueryState>
-
-          <div className="space-y-gutter pt-2">
-            <h3 className="font-headline-md text-headline-md text-on-surface">
-              {t("dashboard.recentActivity")}
-            </h3>
-            <div className="space-y-4 rounded-xl bg-surface-container-lowest p-gutter card-elevation">
-              {activity.length === 0 ? (
-                <p className="py-4 text-center font-body-sm text-body-sm text-on-surface-variant">
-                  {t("notifications.allCaughtUp")}
-                </p>
-              ) : (
-                activity.map((n) => (
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 lg:gap-6">
+        {/* Main column */}
+        <div className="min-w-0 space-y-8 lg:col-span-2">
+          <QueryState
+            loading={courses.loading}
+            error={courses.error}
+            skeleton={<DashboardSkeleton />}
+          >
+            {resume && (
+              <section>
+                <h2 className="mb-3 text-base font-semibold text-fg">
+                  {t("dashboard.pickUp")}
+                </h2>
+                <Card className="flex flex-col overflow-hidden sm:flex-row sm:items-stretch">
                   <Link
-                    key={n.id}
-                    href="/notifications"
-                    className="group flex items-center gap-4 rounded-xl p-2 transition-colors hover:bg-surface-container"
+                    href={`/courses/${resume.id}`}
+                    className="block aspect-video shrink-0 border-b border-line sm:w-56 sm:border-b-0 sm:border-r"
+                    tabIndex={-1}
+                    aria-hidden
                   >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-container/10 text-primary">
-                      <MaterialIcon name="notifications" className="!text-lg" />
-                    </div>
-                    <Tooltip
-                      placement="top"
-                      title={
-                        <div className="space-y-1">
-                          <p className="font-semibold">{n.subject}</p>
-                          {n.smallmessage && (
-                            <p className="text-xs opacity-90">{n.smallmessage}</p>
-                          )}
-                        </div>
-                      }
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="line-clamp-1 font-body-md text-body-md font-bold text-on-surface">
-                            {n.subject}
-                          </p>
-                          <span className="whitespace-nowrap text-xs text-outline">
-                            {timeAgo(n.timecreated)}
-                          </span>
-                        </div>
-                        <p className="line-clamp-2 font-body-sm text-body-sm text-on-surface-variant">
-                          {n.smallmessage}
-                        </p>
-                      </div>
-                    </Tooltip>
-                    <MaterialIcon
-                      name="chevron_right"
-                      className="shrink-0 text-outline transition-transform group-hover:translate-x-0.5"
-                    />
+                    <CourseThumb course={resume} className="h-full w-full" />
                   </Link>
-                ))
-              )}
-            </div>
-          </div>
+                  <div className="flex min-w-0 flex-1 flex-col justify-center gap-3 p-5">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs text-subtle">{resume.shortname}</p>
+                      <Link
+                        href={`/courses/${resume.id}`}
+                        className="mt-0.5 line-clamp-2 text-base font-semibold text-fg hover:underline"
+                      >
+                        {resume.fullname}
+                      </Link>
+                    </div>
+                    {resumePct !== null && (
+                      <div className="flex items-center gap-3">
+                        <Progress value={resumePct} className="flex-1" />
+                        <span className="text-xs tabular-nums text-muted">
+                          {resumePct}%
+                        </span>
+                      </div>
+                    )}
+                    <div>
+                      <Button href={`/courses/${resume.id}`} size="sm">
+                        <PlayCircle size={16} strokeWidth={1.75} />
+                        {t("courses.resume")}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              </section>
+            )}
+
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-fg">
+                  {t("dashboard.continueLearning")}
+                </h2>
+                <Link
+                  href="/courses"
+                  className="text-[13px] font-medium text-primary-text hover:underline"
+                >
+                  {t("dashboard.viewAll")}
+                </Link>
+              </div>
+              <CourseGrid courses={inProgress} />
+            </section>
+          </QueryState>
         </div>
 
-        {/* Right */}
-        <div className="space-y-gutter lg:col-span-4">
-          <div className="rounded-xl bg-surface-container-lowest p-gutter card-elevation">
-            <h3 className="mb-4 font-headline-sm text-headline-sm text-on-surface">
-              {t("dashboard.quickActions")}
-            </h3>
-            <div className="space-y-2">
+        {/* Right column */}
+        <aside className="min-w-0 space-y-6">
+          <Card>
+            <CardHeader
+              title={t("dashboard.recentActivity")}
+              action={
+                <Link
+                  href="/notifications"
+                  className="text-[13px] font-medium text-primary-text hover:underline"
+                >
+                  {t("dashboard.viewAll")}
+                </Link>
+              }
+            />
+            <QueryState
+              loading={notifs.loading}
+              error={notifs.error}
+              skeleton={
+                <div className="space-y-4 p-5">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex gap-3">
+                      <Skeleton className="mt-1 h-2 w-2 rounded-full" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-3.5 w-4/5" />
+                        <Skeleton className="h-3 w-1/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              }
+            >
+              {activity.length === 0 ? (
+                <EmptyState compact icon={Bell} title={t("dashboard.noActivity")} />
+              ) : (
+                <ol className="px-5 py-4">
+                  {activity.map((n, i) => (
+                    <li key={n.id} className="relative flex gap-3 pb-4 last:pb-0">
+                      {i < activity.length - 1 && (
+                        <span
+                          aria-hidden
+                          className="absolute left-[3px] top-4 h-[calc(100%-12px)] w-px bg-line"
+                        />
+                      )}
+                      <span
+                        aria-hidden
+                        className={`relative mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full ${
+                          n.read ? "bg-surface-3" : "bg-primary"
+                        }`}
+                      />
+                      <Link
+                        href="/notifications"
+                        className="group min-w-0 flex-1"
+                        title={n.smallmessage || n.subject}
+                      >
+                        <p className="line-clamp-2 text-[13px] text-fg group-hover:underline">
+                          {n.subject}
+                        </p>
+                        <p className="mt-0.5 text-xs tabular-nums text-subtle">
+                          {timeAgo(n.timecreated)}
+                        </p>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </QueryState>
+          </Card>
+
+          <Card>
+            <CardHeader title={t("dashboard.quickActions")} />
+            <div className="p-2">
               {quickLinks.map((q) => (
                 <Link
                   key={q.href}
                   href={q.href}
-                  className="group flex items-center gap-3 rounded-xl border border-outline-variant p-3 transition-all hover:border-primary hover:bg-primary-container/5"
+                  className="group flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-fg transition-colors hover:bg-surface-2 hover:text-fg"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-container text-primary">
-                    <MaterialIcon name={q.icon} />
-                  </div>
-                  <span className="flex-1 font-body-md font-semibold text-on-surface">
-                    {q.label}
-                  </span>
-                  <MaterialIcon
-                    name="chevron_right"
-                    className="text-outline transition-transform group-hover:translate-x-1"
+                  <IconTile icon={q.icon} tone={q.tone} size="sm" />
+                  <span className="flex-1">{q.label}</span>
+                  <ChevronRight
+                    size={16}
+                    strokeWidth={1.75}
+                    className="shrink-0 text-subtle"
                   />
                 </Link>
               ))}
             </div>
-          </div>
-
-          <div className="rounded-xl bg-gradient-to-br from-primary to-tertiary p-gutter text-on-primary card-elevation">
-            <div className="mb-4 flex items-center gap-3">
-              <MaterialIcon name="account_balance" fill className="!text-3xl" />
-              <h4 className="font-headline-sm text-headline-sm">
-                {user.sitename}
-              </h4>
-            </div>
-            <p className="font-body-sm text-body-sm opacity-80">
-              {user.fullname}
-            </p>
-            <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-bold capitalize backdrop-blur-sm">
-              <MaterialIcon name="verified_user" fill className="!text-sm" />
-              {t(`role.${user.highestRole ?? (user.isSiteAdmin ? "admin" : "student")}`)}
-            </span>
-          </div>
-        </div>
+          </Card>
+        </aside>
       </div>
     </div>
   );

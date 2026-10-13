@@ -1,16 +1,39 @@
 import Image from "next/image";
+import heroPhoto from "../../public/images/photos/hero.webp";
+import graduationPhoto from "../../public/images/photos/graduation.webp";
 import Link from "next/link";
+import {
+  ArrowRight,
+  Award,
+  BadgeCheck,
+  Bell,
+  Briefcase,
+  Calculator,
+  ClipboardCheck,
+  Gavel,
+  Globe,
+  Landmark,
+  Languages,
+  Mail,
+  MapPin,
+  MessagesSquare,
+  MonitorSmartphone,
+  Phone,
+  PlayCircle,
+  type LucideIcon,
+} from "lucide-react";
 import { getToken } from "@/lib/session";
 import { getLocale } from "@/i18n/server";
-import { MaterialIcon } from "@/components/MaterialIcon";
 import { LangSwitcher } from "@/components/LangSwitcher";
+import { UserAvatar } from "@/components/UserAvatar";
+import { getSessionUser } from "@/lib/session";
+import { Button, Card, buttonClass, IconTile, type Tone } from "@/components/ui";
 import { brand } from "@/config/brand";
 
 /**
  * Public marketing landing at "/". Server component: reads the auth cookie to
  * point the CTA at the dashboard (logged in) or login, and the locale cookie to
- * pick copy. Content is UFM's; the layout/structure is a clean SaaS-style page
- * built on the app's own Material 3 design tokens.
+ * pick copy. Minimal layout on the app's neutral design tokens.
  */
 
 const COPY = {
@@ -34,22 +57,23 @@ const COPY = {
     featuresSubtitle:
       "Một cổng học tập gọn gàng kết nối trực tiếp với hệ thống Moodle của nhà trường.",
     features: [
-      { icon: "play_circle", t: "Bài giảng SCORM", d: "Học các bài giảng tương tác ngay trong trình duyệt." },
-      { icon: "quiz", t: "Trắc nghiệm & Bài kiểm tra", d: "Làm bài và xem kết quả theo từng khóa học." },
-      { icon: "workspace_premium", t: "Bảng điểm", d: "Theo dõi điểm số và tiến độ của bạn theo thời gian thực." },
-      { icon: "forum", t: "Tin nhắn & Diễn đàn", d: "Trao đổi trực tiếp với giảng viên và bạn học." },
-      { icon: "notifications", t: "Thông báo", d: "Không bỏ lỡ hạn nộp bài hay thông báo quan trọng." },
-      { icon: "devices", t: "Đa nền tảng", d: "Trải nghiệm mượt mà trên máy tính và điện thoại." },
+      { icon: PlayCircle, t: "Bài giảng SCORM", d: "Học các bài giảng tương tác ngay trong trình duyệt." },
+      { icon: ClipboardCheck, t: "Trắc nghiệm & Bài kiểm tra", d: "Làm bài và xem kết quả theo từng khóa học." },
+      { icon: Award, t: "Bảng điểm", d: "Theo dõi điểm số và tiến độ của bạn theo thời gian thực." },
+      { icon: MessagesSquare, t: "Tin nhắn & Diễn đàn", d: "Trao đổi trực tiếp với giảng viên và bạn học." },
+      { icon: Bell, t: "Thông báo", d: "Không bỏ lỡ hạn nộp bài hay thông báo quan trọng." },
+      { icon: MonitorSmartphone, t: "Đa nền tảng", d: "Trải nghiệm mượt mà trên máy tính và điện thoại." },
     ],
     programsTitle: "Các chuyên ngành đào tạo",
     programsSubtitle: "Chương trình ứng dụng, đạt chuẩn quốc gia và quốc tế.",
     programs: [
-      { icon: "calculate", t: "Kế toán", d: "Kế toán tài chính, quản trị, chi phí và thuế." },
-      { icon: "business_center", t: "Quản trị kinh doanh", d: "Hành vi tổ chức, chiến lược và vận hành." },
-      { icon: "account_balance", t: "Tài chính doanh nghiệp", d: "Thị trường tài chính và hoạch định tài chính." },
-      { icon: "translate", t: "Tiếng Anh kinh doanh", d: "Kỹ năng ngôn ngữ cho môi trường kinh doanh." },
-      { icon: "gavel", t: "Luật kinh doanh & đầu tư", d: "Kiến thức pháp luật kinh tế và đầu tư." },
+      { icon: Calculator, t: "Kế toán", d: "Kế toán tài chính, quản trị, chi phí và thuế." },
+      { icon: Briefcase, t: "Quản trị kinh doanh", d: "Hành vi tổ chức, chiến lược và vận hành." },
+      { icon: Landmark, t: "Tài chính doanh nghiệp", d: "Thị trường tài chính và hoạch định tài chính." },
+      { icon: Languages, t: "Tiếng Anh kinh doanh", d: "Kỹ năng ngôn ngữ cho môi trường kinh doanh." },
+      { icon: Gavel, t: "Luật kinh doanh & đầu tư", d: "Kiến thức pháp luật kinh tế và đầu tư." },
     ],
+    howEyebrow: "Cách hoạt động",
     howTitle: "Bắt đầu chỉ với 3 bước",
     how: [
       { t: "Đăng nhập", d: "Sử dụng tài khoản Moodle của trường để vào hệ thống." },
@@ -91,22 +115,23 @@ const COPY = {
     featuresSubtitle:
       "A clean learning portal wired directly into the university's Moodle.",
     features: [
-      { icon: "play_circle", t: "SCORM lessons", d: "Take interactive lessons right in your browser." },
-      { icon: "quiz", t: "Quizzes & tests", d: "Attempt assessments and see results per course." },
-      { icon: "workspace_premium", t: "Grades", d: "Track your scores and progress in real time." },
-      { icon: "forum", t: "Messages & forum", d: "Talk directly with teachers and classmates." },
-      { icon: "notifications", t: "Notifications", d: "Never miss a deadline or important announcement." },
-      { icon: "devices", t: "Cross‑platform", d: "A smooth experience on desktop and mobile." },
+      { icon: PlayCircle, t: "SCORM lessons", d: "Take interactive lessons right in your browser." },
+      { icon: ClipboardCheck, t: "Quizzes & tests", d: "Attempt assessments and see results per course." },
+      { icon: Award, t: "Grades", d: "Track your scores and progress in real time." },
+      { icon: MessagesSquare, t: "Messages & forum", d: "Talk directly with teachers and classmates." },
+      { icon: Bell, t: "Notifications", d: "Never miss a deadline or important announcement." },
+      { icon: MonitorSmartphone, t: "Cross‑platform", d: "A smooth experience on desktop and mobile." },
     ],
     programsTitle: "Academic programs",
     programsSubtitle: "Application‑oriented programs meeting national and international standards.",
     programs: [
-      { icon: "calculate", t: "Accounting", d: "Financial, management, cost and tax accounting." },
-      { icon: "business_center", t: "Business Administration", d: "Organizational behavior, strategy and operations." },
-      { icon: "account_balance", t: "Corporate Finance", d: "Financial markets and corporate planning." },
-      { icon: "translate", t: "Business English", d: "Language skills for modern business." },
-      { icon: "gavel", t: "Business & Investment Law", d: "Economic law and investment knowledge." },
+      { icon: Calculator, t: "Accounting", d: "Financial, management, cost and tax accounting." },
+      { icon: Briefcase, t: "Business Administration", d: "Organizational behavior, strategy and operations." },
+      { icon: Landmark, t: "Corporate Finance", d: "Financial markets and corporate planning." },
+      { icon: Languages, t: "Business English", d: "Language skills for modern business." },
+      { icon: Gavel, t: "Business & Investment Law", d: "Economic law and investment knowledge." },
     ],
+    howEyebrow: "How it works",
     howTitle: "Get started in 3 steps",
     how: [
       { t: "Log in", d: "Use your university Moodle account to sign in." },
@@ -130,291 +155,292 @@ const COPY = {
 } as const;
 
 export default async function LandingPage() {
-  const [token, locale] = await Promise.all([getToken(), getLocale()]);
+  const [token, locale, user] = await Promise.all([getToken(), getLocale(), getSessionUser()]);
   const c = COPY[locale];
   const ctaHref = token ? "/dashboard" : "/login";
   const ctaLabel = token ? c.enterPortal : c.login;
   const year = new Date().getFullYear();
 
+  const navLink =
+    "text-sm text-muted transition-colors hover:text-fg";
+
   return (
-    <div className="min-h-screen bg-background text-on-surface">
-      {/* Navbar */}
-      <header className="sticky top-0 z-40 border-b border-outline-variant/15 bg-surface/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg bg-white p-1 shadow-sm ring-1 ring-outline-variant/20">
-              <Image
-                src="/images/main-logo.png"
-                alt={brand.name}
-                width={36}
-                height={36}
-                className="h-full w-full object-contain"
-              />
-            </span>
-            <span className="font-headline-sm text-headline-sm font-extrabold tracking-tight text-primary">
-              {brand.tagline}
-            </span>
+    <div className="min-h-screen bg-canvas text-fg">
+      {/* Topbar */}
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+          <Link href="/" className="flex min-w-0 items-center gap-2.5">
+            <LogoChip />
+            <span className="truncate text-base font-semibold text-fg">{brand.tagline}</span>
           </Link>
 
-          <nav className="hidden items-center gap-8 md:flex">
-            <a href="#features" className="font-body-sm text-body-sm font-semibold text-on-surface-variant transition-colors hover:text-primary">
+          <nav className="hidden items-center gap-7 md:flex">
+            <a href="#features" className={navLink}>
               {c.nav.features}
             </a>
-            <a href="#programs" className="font-body-sm text-body-sm font-semibold text-on-surface-variant transition-colors hover:text-primary">
+            <a href="#programs" className={navLink}>
               {c.nav.programs}
             </a>
-            <a href="#contact" className="font-body-sm text-body-sm font-semibold text-on-surface-variant transition-colors hover:text-primary">
+            <a href="#contact" className={navLink}>
               {c.nav.contact}
             </a>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <LangSwitcher />
-            <Link
-              href={ctaHref}
-              className="flex items-center gap-1.5 rounded-full bg-primary px-5 py-2 font-label-md text-label-md font-bold text-on-primary shadow-sm transition-all hover:opacity-90 active:scale-95"
-            >
-              {ctaLabel}
-              <MaterialIcon name="arrow_forward" className="!text-base" />
-            </Link>
+            {token && user ? (
+              <Link
+                href="/dashboard"
+                title={c.enterPortal}
+                className="flex h-10 max-w-[220px] items-center gap-2 rounded-full border border-line bg-surface py-1 pl-1 pr-3 transition-colors hover:bg-surface-2"
+              >
+                <UserAvatar name={user.fullname} id={user.id} src={user.pictureurl} size={32} />
+                <span className="truncate text-sm font-medium text-fg">{user.fullname}</span>
+              </Link>
+            ) : (
+              <Button href={ctaHref} size="sm">
+                {ctaLabel}
+                <ArrowRight size={14} strokeWidth={2} />
+              </Button>
+            )}
           </div>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-tertiary text-on-primary">
-        <div className="absolute -left-24 -top-24 h-96 w-96 rounded-full bg-secondary/25 blur-3xl animate-float" />
-        <div
-          className="absolute -bottom-32 right-0 h-96 w-96 rounded-full bg-inverse-primary/20 blur-3xl animate-float"
-          style={{ animationDelay: "2s" }}
-        />
-        <div className="relative mx-auto max-w-7xl px-4 py-24 text-center sm:px-6 lg:px-8 lg:py-32">
-          <span className="mb-6 inline-block rounded-full border border-white/20 bg-white/10 px-4 py-1.5 font-label-md text-label-md backdrop-blur-sm">
-            {c.heroBadge}
-          </span>
-          <h1 className="mx-auto max-w-4xl font-display-lg-mobile text-display-lg-mobile leading-tight md:font-display-lg md:text-display-lg">
-            {c.heroTitle}{" "}
-            <span className="text-secondary-fixed">{c.heroAccent}</span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl font-body-lg text-body-lg text-primary-fixed/80">
-            {c.heroSubtitle}
-          </p>
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link
-              href={ctaHref}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-8 py-4 font-headline-sm text-headline-sm font-bold text-primary shadow-lg transition-all hover:bg-white/90 active:scale-95 sm:w-auto"
-            >
-              {ctaLabel}
-              <MaterialIcon name="arrow_forward" />
-            </Link>
-            <a
-              href="#features"
-              className="flex w-full items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 px-8 py-4 font-headline-sm text-headline-sm font-bold text-on-primary backdrop-blur-sm transition-all hover:bg-white/20 active:scale-95 sm:w-auto"
-            >
-              {c.explore}
-            </a>
+      <section className="bg-mesh relative overflow-hidden border-b border-line">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-16 sm:px-6 sm:pb-20 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:pt-24">
+          <div className="text-center lg:text-left">
+            <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface/80 px-3 py-1 text-xs font-medium text-muted backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              {c.heroBadge}
+            </span>
+            <h1 className="mx-auto mt-6 max-w-2xl text-4xl font-semibold leading-[1.1] tracking-tight text-fg sm:text-5xl lg:mx-0 lg:text-6xl">
+              {c.heroTitle} <span className="text-gradient">{c.heroAccent}</span>
+            </h1>
+            <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted sm:text-lg lg:mx-0">
+              {c.heroSubtitle}
+            </p>
+            <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center lg:justify-start">
+              <Button href={ctaHref} size="lg">
+                {ctaLabel}
+                <ArrowRight size={16} strokeWidth={2} />
+              </Button>
+              <Button href="#features" variant="secondary" size="lg">
+                {c.explore}
+              </Button>
+            </div>
           </div>
 
-          {/* Stats */}
-          <div className="mx-auto mt-16 grid max-w-3xl grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
+            <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-tr from-primary/20 via-accent/15 to-violet/20 blur-2xl" />
+            <div className="relative overflow-hidden rounded-2xl border border-line bg-surface shadow-pop">
+              <Image
+                src={heroPhoto}
+                alt=""
+                priority
+                placeholder="blur"
+                sizes="(min-width: 1024px) 560px, 100vw"
+                className="aspect-[4/3] h-auto w-full object-cover"
+              />
+            </div>
+            {/* Floating stat chips */}
+            <div className="absolute -bottom-5 left-4 flex items-center gap-3 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-pop backdrop-blur sm:left-6">
+              <IconTile icon={PlayCircle} tone="primary" size="sm" />
+              <div className="leading-tight">
+                <p className="text-sm font-semibold tabular-nums text-fg">{c.stats[0].n}</p>
+                <p className="text-xs text-subtle">{c.stats[0].l}</p>
+              </div>
+            </div>
+            <div className="absolute -top-4 right-4 hidden items-center gap-3 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-pop backdrop-blur sm:flex">
+              <IconTile icon={Award} tone="success" size="sm" />
+              <div className="leading-tight">
+                <p className="text-sm font-semibold tabular-nums text-fg">{c.stats[1].n}</p>
+                <p className="text-xs text-subtle">{c.stats[1].l}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="relative mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4">
             {c.stats.map((s) => (
-              <div
-                key={s.l}
-                className="rounded-2xl border border-white/10 bg-white/10 p-5 backdrop-blur-md"
-              >
-                <div className="font-display-lg text-3xl font-extrabold text-secondary-fixed">
+              <div key={s.l} className="bg-surface/90 px-4 py-6 text-center backdrop-blur">
+                <dt className="sr-only">{s.l}</dt>
+                <dd className="text-2xl font-semibold tracking-tight tabular-nums text-fg sm:text-3xl">
                   {s.n}
-                </div>
-                <div className="mt-1 font-label-md text-label-md text-primary-fixed/80">
-                  {s.l}
-                </div>
+                </dd>
+                <dd className="mt-1 text-[13px] text-subtle">{s.l}</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </div>
       </section>
 
       {/* Features */}
-      <section id="features" className="scroll-mt-20 py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading title={c.featuresTitle} subtitle={c.featuresSubtitle} />
-          <div className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {c.features.map((f) => (
-              <div
-                key={f.t}
-                className="group rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-7 card-elevation transition-all hover:-translate-y-1"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-container/10 text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
-                  <MaterialIcon name={f.icon} className="!text-2xl" />
-                </div>
-                <h3 className="mt-5 font-headline-sm text-headline-sm text-on-surface">
-                  {f.t}
-                </h3>
-                <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-                  {f.d}
-                </p>
-              </div>
+      <section id="features" className="scroll-mt-16 py-20 sm:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <SectionHeading
+            eyebrow={c.nav.features}
+            title={c.featuresTitle}
+            subtitle={c.featuresSubtitle}
+          />
+          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {c.features.map((f, i) => (
+              <Card key={f.t} interactive className="p-6">
+                <IconSquare icon={f.icon} index={i} />
+                <h3 className="mt-5 text-base font-semibold text-fg">{f.t}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">{f.d}</p>
+              </Card>
             ))}
           </div>
         </div>
       </section>
 
       {/* Programs */}
-      <section id="programs" className="scroll-mt-20 bg-surface-container-low/40 py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading title={c.programsTitle} subtitle={c.programsSubtitle} />
-          <div className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {c.programs.map((p) => (
-              <div
-                key={p.t}
-                className="flex items-start gap-4 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-6 card-elevation transition-all hover:-translate-y-1"
-              >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary-container text-on-secondary-container">
-                  <MaterialIcon name={p.icon} className="!text-2xl" />
+      <section
+        id="programs"
+        className="scroll-mt-16 border-y border-line bg-surface-2 py-20 sm:py-24"
+      >
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <SectionHeading
+            eyebrow={c.nav.programs}
+            title={c.programsTitle}
+            subtitle={c.programsSubtitle}
+          />
+          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {c.programs.map((p, i) => (
+              <Card key={p.t} interactive className="flex items-start gap-4 p-5">
+                <IconSquare icon={p.icon} index={i + 1} />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-fg">{p.t}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-muted">{p.d}</p>
                 </div>
-                <div>
-                  <h3 className="font-headline-sm text-headline-sm text-on-surface">
-                    {p.t}
-                  </h3>
-                  <p className="mt-1 font-body-md text-body-md text-on-surface-variant">
-                    {p.d}
-                  </p>
-                </div>
-              </div>
+              </Card>
             ))}
           </div>
         </div>
       </section>
 
       {/* How it works */}
-      <section className="py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading title={c.howTitle} />
-          <div className="mt-14 grid grid-cols-1 gap-8 md:grid-cols-3">
+      <section className="py-20 sm:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <SectionHeading eyebrow={c.howEyebrow} title={c.howTitle} />
+          <ol className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
             {c.how.map((s, i) => (
-              <div key={s.t} className="relative text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary font-display-lg text-2xl font-extrabold text-on-primary shadow-lg shadow-primary/20">
+              <li key={s.t} className="rounded-xl border border-line bg-surface p-6">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-[13px] font-semibold tabular-nums text-white">
                   {String(i + 1).padStart(2, "0")}
-                </div>
-                <h3 className="mt-6 font-headline-sm text-headline-sm text-on-surface">
-                  {s.t}
-                </h3>
-                <p className="mx-auto mt-2 max-w-xs font-body-md text-body-md text-on-surface-variant">
-                  {s.d}
-                </p>
-              </div>
+                </span>
+                <h3 className="mt-5 text-base font-semibold text-fg">{s.t}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">{s.d}</p>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       </section>
 
       {/* Philosophy */}
-      <section className="bg-surface-container-low/40 py-24">
-        <div className="mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
-          <p className="font-label-md text-label-md uppercase tracking-widest text-primary">
-            {c.philosophyTitle}
-          </p>
-          <h2 className="mt-4 font-display-lg-mobile text-display-lg-mobile text-on-surface">
-            {c.philosophyWords}
-          </h2>
-          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="border-y border-line bg-surface-2 py-20 sm:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <SectionHeading eyebrow={c.philosophyTitle} title={c.philosophyWords} />
+          <ul className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {c.values.map((v) => (
-              <div
+              <li
                 key={v}
-                className="flex items-center gap-3 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-5 text-left card-elevation"
+                className="flex items-start gap-3 rounded-xl border border-line bg-surface p-5"
               >
-                <MaterialIcon name="verified" fill className="!text-xl text-secondary" />
-                <span className="font-body-sm text-body-sm font-semibold text-on-surface">
-                  {v}
-                </span>
-              </div>
+                <BadgeCheck
+                  size={18}
+                  strokeWidth={1.75}
+                  className="mt-px shrink-0 text-primary-text"
+                />
+                <span className="text-sm font-medium text-fg">{v}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="py-24">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-tertiary px-6 py-16 text-center text-on-primary shadow-xl">
-            <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
-            <h2 className="relative font-display-lg-mobile text-display-lg-mobile">
-              {c.ctaTitle}
-            </h2>
-            <p className="relative mx-auto mt-4 max-w-xl font-body-lg text-body-lg text-primary-fixed/80">
-              {c.ctaSubtitle}
-            </p>
-            <Link
-              href={ctaHref}
-              className="relative mt-8 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 font-headline-sm text-headline-sm font-bold text-primary shadow-lg transition-all hover:bg-white/90 active:scale-95"
-            >
-              {ctaLabel}
-              <MaterialIcon name="arrow_forward" />
-            </Link>
+      <section className="py-20 sm:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <div className="relative overflow-hidden rounded-2xl px-6 py-16 text-center text-white sm:px-12 sm:py-20">
+            <Image
+              src={graduationPhoto}
+              alt=""
+              fill
+              placeholder="blur"
+              sizes="(min-width: 1152px) 1152px, 100vw"
+              className="object-cover"
+            />
+            <div className="bg-photo-overlay absolute inset-0" />
+            <div className="relative">
+              <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
+                {c.ctaTitle}
+              </h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/80 sm:text-base">
+                {c.ctaSubtitle}
+              </p>
+              <Link
+                href={ctaHref}
+                className="mt-8 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-white px-5 text-sm font-medium text-[#14468c] transition-colors hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                {ctaLabel}
+                <ArrowRight size={16} strokeWidth={2} />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer id="contact" className="scroll-mt-20 border-t border-outline-variant/15 bg-surface-container-low/60">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8">
+      <footer id="contact" className="scroll-mt-16 border-t border-line">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-4 py-14 text-sm text-muted sm:px-6 md:grid-cols-3">
           <div>
             <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg bg-white p-1 shadow-sm ring-1 ring-outline-variant/20">
-                <Image
-                  src="/images/main-logo.png"
-                  alt={brand.name}
-                  width={36}
-                  height={36}
-                  className="h-full w-full object-contain"
-                />
-              </span>
-              <span className="font-headline-sm text-headline-sm font-extrabold text-primary">
-                {brand.tagline}
-              </span>
+              <LogoChip size={44} />
+              <span className="text-sm font-semibold text-fg">{brand.tagline}</span>
             </div>
-            <p className="mt-4 max-w-xs font-body-md text-body-md text-on-surface-variant">
-              {c.footerAbout}
-            </p>
-            <div className="mt-5 flex gap-3">
+            <p className="mt-4 max-w-xs leading-relaxed">{c.footerAbout}</p>
+            <div className="mt-5 flex gap-2">
               <a
                 href="https://facebook.com/ufm.edu.vn"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Facebook"
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container text-on-surface-variant transition-colors hover:bg-primary hover:text-on-primary"
+                className={buttonClass("secondary", "icon")}
               >
-                <MaterialIcon name="public" />
+                <Globe size={16} strokeWidth={1.75} />
               </a>
               <a
                 href="https://lms-ufm.edu.vn"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={brand.contact.website}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container text-on-surface-variant transition-colors hover:bg-primary hover:text-on-primary"
+                className={buttonClass("secondary", "icon")}
               >
-                <MaterialIcon name="language" />
+                <Languages size={16} strokeWidth={1.75} />
               </a>
             </div>
           </div>
 
           <div>
-            <h4 className="font-label-md text-label-md uppercase tracking-wider text-on-surface">
-              {c.quickLinks}
-            </h4>
-            <ul className="mt-4 space-y-3 font-body-md text-body-md text-on-surface-variant">
+            <h4 className="text-[13px] font-semibold text-fg">{c.quickLinks}</h4>
+            <ul className="mt-4 space-y-2.5">
               <li>
-                <a href="#features" className="transition-colors hover:text-primary">
+                <a href="#features" className="transition-colors hover:text-fg">
                   {c.nav.features}
                 </a>
               </li>
               <li>
-                <a href="#programs" className="transition-colors hover:text-primary">
+                <a href="#programs" className="transition-colors hover:text-fg">
                   {c.nav.programs}
                 </a>
               </li>
               <li>
-                <Link href={ctaHref} className="transition-colors hover:text-primary">
+                <Link href={ctaHref} className="transition-colors hover:text-fg">
                   {ctaLabel}
                 </Link>
               </li>
@@ -422,23 +448,27 @@ export default async function LandingPage() {
           </div>
 
           <div>
-            <h4 className="font-label-md text-label-md uppercase tracking-wider text-on-surface">
-              {c.contactLabel}
-            </h4>
-            <ul className="mt-4 space-y-3 font-body-md text-body-md text-on-surface-variant">
+            <h4 className="text-[13px] font-semibold text-fg">{c.contactLabel}</h4>
+            <ul className="mt-4 space-y-2.5">
               <li className="flex items-start gap-2">
-                <MaterialIcon name="location_on" className="!text-lg text-primary" />
+                <MapPin size={16} strokeWidth={1.75} className="mt-0.5 shrink-0 text-subtle" />
                 <span>{brand.contact.address}</span>
               </li>
               <li className="flex items-center gap-2">
-                <MaterialIcon name="call" className="!text-lg text-primary" />
-                <a href={`tel:${brand.contact.phone.replace(/\s/g, "")}`} className="transition-colors hover:text-primary">
+                <Phone size={16} strokeWidth={1.75} className="shrink-0 text-subtle" />
+                <a
+                  href={`tel:${brand.contact.phone.replace(/\s/g, "")}`}
+                  className="tabular-nums transition-colors hover:text-fg"
+                >
                   {brand.contact.phone}
                 </a>
               </li>
               <li className="flex items-center gap-2">
-                <MaterialIcon name="mail" className="!text-lg text-primary" />
-                <a href={`mailto:${brand.contact.email}`} className="transition-colors hover:text-primary">
+                <Mail size={16} strokeWidth={1.75} className="shrink-0 text-subtle" />
+                <a
+                  href={`mailto:${brand.contact.email}`}
+                  className="break-all transition-colors hover:text-fg"
+                >
                   {brand.contact.email}
                 </a>
               </li>
@@ -446,30 +476,52 @@ export default async function LandingPage() {
           </div>
         </div>
 
-        <div className="border-t border-outline-variant/15 py-6 text-center font-body-sm text-body-sm text-on-surface-variant">
-          © {year} {brand.name}.
+        <div className="border-t border-line">
+          <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-subtle sm:px-6">
+            © {year} {brand.name}.
+          </div>
         </div>
       </footer>
     </div>
   );
 }
 
+function LogoChip({ size = 40 }: { size?: number }) {
+  return (
+    <Image
+      src={brand.logoMark}
+      alt={brand.name}
+      width={size}
+      height={size}
+      className="shrink-0 object-contain"
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+const TILE_TONES: Tone[] = ["primary", "accent", "violet", "success", "warning", "primary"];
+
+function IconSquare({ icon, index = 0 }: { icon: LucideIcon; index?: number }) {
+  return <IconTile icon={icon} tone={TILE_TONES[index % TILE_TONES.length]} />;
+}
+
 function SectionHeading({
+  eyebrow,
   title,
   subtitle,
 }: {
+  eyebrow?: string;
   title: string;
   subtitle?: string;
 }) {
   return (
-    <div className="mx-auto max-w-2xl text-center">
-      <h2 className="font-display-lg-mobile text-display-lg-mobile text-on-surface">
-        {title}
-      </h2>
+    <div className="max-w-2xl">
+      {eyebrow && (
+        <p className="text-[13px] font-medium text-primary-text">{eyebrow}</p>
+      )}
+      <h2 className="mt-2 text-3xl font-semibold tracking-tight text-fg">{title}</h2>
       {subtitle && (
-        <p className="mt-4 font-body-lg text-body-lg text-on-surface-variant">
-          {subtitle}
-        </p>
+        <p className="mt-3 text-base leading-relaxed text-muted">{subtitle}</p>
       )}
     </div>
   );

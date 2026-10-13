@@ -1,34 +1,54 @@
 "use client";
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Inbox,
+  Play,
+} from "lucide-react";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { QueryState } from "@/components/ui/QueryState";
-import { MaterialIcon } from "@/components/MaterialIcon";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  IconTile,
+  PageHeader,
+  Progress,
+  QueryState,
+  Skeleton,
+  cn,
+} from "@/components/ui";
 import { moduleMeta } from "@/lib/module-meta";
-import type { CourseModule, CourseSection } from "@/lib/moodle/types";
-
-function stripHtml(html: string) {
-  return html.replace(/<[^>]*>/g, "").trim();
-}
+import { stripHtml } from "@/lib/format";
+import type { CourseModule, CourseSection, TimelineCourse } from "@/lib/moodle/types";
 
 function isDone(mod: CourseModule) {
   const s = mod.completiondata?.state;
   return s === 1 || s === 2;
 }
 
+/** Modules with completion tracking (label rows never count). */
+function isTracked(mod: CourseModule) {
+  return mod.modname !== "label" && !!mod.completiondata;
+}
+
 function ModuleRow({ mod }: { mod: CourseModule }) {
   const t = useT();
   const meta = moduleMeta(mod.modname);
+  const Icon = meta.icon;
   const highlight = mod.modname === "scorm" || mod.modname === "quiz";
   const done = isDone(mod);
 
   if (mod.modname === "label") {
     const text = stripHtml(mod.description ?? "");
     return text ? (
-      <div className="px-4 py-3 font-body-sm text-body-sm italic text-on-surface-variant">
-        {text}
-      </div>
+      <div className="px-5 py-3 text-[13px] text-muted">{text}</div>
     ) : null;
   }
 
@@ -40,70 +60,147 @@ function ModuleRow({ mod }: { mod: CourseModule }) {
         : t("common.open");
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-container/60">
-      <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          done
-            ? "bg-secondary-container text-on-secondary-container"
-            : highlight
-              ? "bg-primary-container/10 text-primary"
-              : "bg-surface-container text-on-surface-variant"
-        }`}
-      >
-        <MaterialIcon
-          name={done ? "check_circle" : meta.iconName}
-          fill={done}
-          className="!text-lg"
-        />
-      </div>
+    <div className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-surface-2">
+      <IconTile icon={Icon} tone={meta.tone} size="sm" />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate font-body-md font-semibold text-on-surface">
-          {mod.name}
+        <p className="truncate text-sm font-medium text-fg">{mod.name}</p>
+        <p className="truncate text-xs text-subtle">
+          {t(meta.labelKey)}
+          {mod.description && (
+            <span className="hidden sm:inline">
+              {" · "}
+              {stripHtml(mod.description).slice(0, 90)}
+            </span>
+          )}
         </p>
-        {mod.description && (
-          <p className="truncate font-body-sm text-body-sm text-on-surface-variant">
-            {stripHtml(mod.description).slice(0, 90)}
-          </p>
-        )}
       </div>
 
-      <span
-        className={`hidden shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase sm:inline ${
-          highlight
-            ? "bg-primary-container/10 text-primary"
-            : "bg-surface-container text-on-surface-variant"
-        }`}
-      >
-        {t(meta.labelKey)}
-      </span>
+      {mod.completiondata ? (
+        done ? (
+          <CheckCircle2
+            size={18}
+            strokeWidth={1.75}
+            className="shrink-0 text-success"
+            aria-label={t("courses.completed")}
+          />
+        ) : (
+          <Circle size={18} strokeWidth={1.75} className="shrink-0 text-line-strong" aria-hidden />
+        )
+      ) : null}
 
       {mod.url &&
         (mod.modname === "scorm" ? (
-          <Link
-            href={`/scorm/${mod.id}`}
-            className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary transition-all hover:opacity-90 active:scale-95"
-          >
+          <Button href={`/scorm/${mod.id}`} variant="secondary" size="sm" className="shrink-0">
             {action}
-            <MaterialIcon name="play_arrow" className="!text-sm" />
-          </Link>
+            <Play size={14} strokeWidth={1.75} />
+          </Button>
         ) : (
-          <a
-            href={mod.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-all active:scale-95 ${
-              highlight
-                ? "bg-primary text-on-primary hover:opacity-90"
-                : "border border-outline-variant text-on-surface hover:border-primary hover:text-primary"
-            }`}
+          <Button
+            href={`/activity/${mod.id}`}
+            variant={highlight ? "secondary" : "ghost"}
+            size="sm"
+            className="shrink-0"
           >
             {action}
-            <MaterialIcon name="arrow_forward" className="!text-sm" />
-          </a>
+            <ArrowRight size={14} strokeWidth={1.75} />
+          </Button>
         ))}
     </div>
   );
+}
+
+function SectionCard({
+  section,
+  title,
+}: {
+  section: CourseSection;
+  title: string;
+}) {
+  const mods = section.modules.filter((m) => m.uservisible !== false);
+  const tracked = mods.filter(isTracked);
+  const done = tracked.filter(isDone).length;
+
+  return (
+    <Card id={`sec-${section.id}`} className="scroll-mt-20 overflow-hidden">
+      <details open className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <ChevronDown
+              size={16}
+              strokeWidth={1.75}
+              className="shrink-0 -rotate-90 text-subtle transition-transform group-open:rotate-0"
+            />
+            <h2 className="truncate text-sm font-semibold text-fg">{title}</h2>
+          </div>
+          {tracked.length > 0 && (
+            <Badge
+              tone={done === tracked.length ? "success" : "neutral"}
+              className="shrink-0 tabular-nums"
+            >
+              {done}/{tracked.length}
+            </Badge>
+          )}
+        </summary>
+        <div className="divide-y divide-line border-t border-line">
+          {mods.map((mod) => (
+            <ModuleRow key={mod.id} mod={mod} />
+          ))}
+        </div>
+      </details>
+    </Card>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="rounded-xl border border-line bg-surface">
+          <div className="border-b border-line px-5 py-4">
+            <Skeleton className="h-4 w-1/3" />
+          </div>
+          {Array.from({ length: 3 }).map((__, j) => (
+            <div key={j} className="flex items-center gap-3 px-5 py-3">
+              <Skeleton className="h-8 w-8 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-1/2" />
+                <Skeleton className="h-3 w-1/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Tracks which section is currently in view for the TOC highlight. */
+function useActiveSection(ids: string[]) {
+  const [active, setActive] = useState<string | null>(null);
+  const key = ids.join(",");
+
+  useEffect(() => {
+    if (!key) return;
+    const els = key
+      .split(",")
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => !!el);
+    if (!els.length) return;
+    const visible = new Map<string, boolean>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) visible.set(e.target.id, e.isIntersecting);
+        const first = els.find((el) => visible.get(el.id));
+        if (first) setActive(first.id);
+      },
+      { rootMargin: "-80px 0px -55% 0px" }
+    );
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [key]);
+
+  return active;
 }
 
 export default function CourseDetailPage({
@@ -119,123 +216,117 @@ export default function CourseDetailPage({
     "core_course_get_contents",
     { courseid }
   );
+  // Course title / summary / progress come from the enrolment list.
+  const enrolled = useMoodle<{ courses: TimelineCourse[] }>(
+    "core_course_get_enrolled_courses_by_timeline_classification",
+    { classification: "all", limit: 0, offset: 0, sort: "fullname" }
+  );
+  const course = enrolled.data?.courses.find((c) => c.id === courseid);
 
   const sections = (data ?? []).filter(
     (s) => s.uservisible !== false && s.modules.length > 0
   );
+  const sectionTitle = (s: CourseSection) =>
+    s.name || `${t("courses.contents")} ${s.section}`;
 
-  function counts(section: CourseSection) {
-    return section.modules.reduce(
-      (acc, m) => {
-        if (m.modname === "scorm") acc.scorm++;
-        if (m.modname === "quiz") acc.quiz++;
-        return acc;
-      },
-      { scorm: 0, quiz: 0 }
-    );
-  }
+  // Prefer Moodle's reported progress; otherwise derive it from completion data.
+  const tracked = sections.flatMap((s) =>
+    s.modules.filter((m) => m.uservisible !== false && isTracked(m))
+  );
+  const pct =
+    typeof course?.progress === "number"
+      ? Math.round(course.progress)
+      : tracked.length
+        ? Math.round((tracked.filter(isDone).length / tracked.length) * 100)
+        : null;
+
+  const active = useActiveSection(sections.map((s) => `sec-${s.id}`));
+  const summary = course?.summary ? stripHtml(course.summary) : "";
 
   return (
-    <div className="space-y-gutter">
-      {/* Breadcrumb + title */}
-      <div>
-        <nav className="mb-2 flex items-center gap-2 font-label-md text-label-md text-on-surface-variant">
-          <Link href="/courses" className="hover:text-primary">
-            {t("nav.courses")}
+    <div className="animate-fade-in-up">
+      <PageHeader
+        eyebrow={
+          <Link
+            href="/courses"
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-fg"
+          >
+            <ArrowLeft size={14} strokeWidth={1.75} />
+            {t("courses.backToCourses")}
           </Link>
-          <MaterialIcon name="chevron_right" className="!text-sm" />
-          <span className="font-bold text-primary">{t("courses.contents")}</span>
-        </nav>
-        <h2 className="font-headline-md text-headline-md font-bold text-on-surface">
-          {t("courses.contents")}
-        </h2>
-      </div>
+        }
+        title={course?.fullname ?? t("courses.contents")}
+        description={
+          <>
+            {summary && (
+              <span className="line-clamp-2 max-w-2xl">{summary}</span>
+            )}
+            {!loading && sections.length > 0 && (
+              <span className="mt-1 block text-[13px] tabular-nums text-subtle">
+                {sections.length} {t("courses.sections")}
+              </span>
+            )}
+          </>
+        }
+      />
 
-      <QueryState loading={loading} error={error}>
+      {pct !== null && (
+        <div className="-mt-2 mb-8 flex max-w-md items-center gap-3">
+          <Progress value={pct} tone={pct >= 100 ? "success" : "primary"} className="flex-1" />
+          <span className="text-xs tabular-nums text-muted">
+            {pct}% · {t("courses.progress")}
+          </span>
+        </div>
+      )}
+
+      <QueryState loading={loading} error={error} skeleton={<DetailSkeleton />}>
         {sections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest p-lg text-center card-elevation">
-            <MaterialIcon name="inbox" className="!text-5xl text-outline-variant" />
-            <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-              {t("courses.noVisibleContent")}
-            </p>
-          </div>
+          <Card>
+            <EmptyState icon={Inbox} title={t("courses.noVisibleContent")} />
+          </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-gutter lg:grid-cols-12">
-            {/* Main: sections */}
-            <div className="space-y-gutter lg:col-span-8">
-              {sections.map((section, i) => {
-                const c = counts(section);
-                return (
-                  <div
-                    key={section.id}
-                    id={`sec-${section.id}`}
-                    style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}
-                    className="overflow-hidden rounded-xl bg-surface-container-lowest card-elevation animate-fade-in-up"
-                  >
-                    <div className="flex items-center justify-between gap-3 border-b border-outline-variant/30 bg-surface px-5 py-4">
-                      <h3 className="font-headline-sm text-headline-sm text-on-surface">
-                        {section.name || `${t("courses.contents")} ${section.section}`}
-                      </h3>
-                      <div className="flex gap-1.5">
-                        {c.scorm > 0 && (
-                          <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold text-on-primary">
-                            {c.scorm} {t("modules.scorm")}
-                          </span>
-                        )}
-                        {c.quiz > 0 && (
-                          <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[10px] font-bold text-on-secondary">
-                            {c.quiz} {t("modules.quiz")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="divide-y divide-outline-variant/20">
-                      {section.modules
-                        .filter((m) => m.uservisible !== false)
-                        .map((mod) => (
-                          <ModuleRow key={mod.id} mod={mod} />
-                        ))}
-                    </div>
-                  </div>
-                );
-              })}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-w-0 space-y-4">
+              {sections.map((section) => (
+                <SectionCard
+                  key={section.id}
+                  section={section}
+                  title={sectionTitle(section)}
+                />
+              ))}
             </div>
 
-            {/* Sidebar: course content nav (sticky) */}
-            <div className="lg:col-span-4">
-              <div className="overflow-hidden rounded-xl bg-surface-container-lowest card-elevation lg:sticky lg:top-20">
-                <div className="border-b border-outline-variant/30 bg-surface px-5 py-4">
-                  <h3 className="font-headline-sm text-headline-sm text-on-surface">
-                    {t("courses.contents")}
-                  </h3>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant">
-                    {sections.length} {t("courses.sections")}
-                  </p>
-                </div>
-                <div className="max-h-[60vh] divide-y divide-outline-variant/20 overflow-y-auto">
+            <nav
+              aria-label={t("courses.contents")}
+              className="hidden lg:block"
+            >
+              <div className="sticky top-20">
+                <p className="mb-3 text-xs font-medium text-subtle">
+                  {t("courses.contents")}
+                </p>
+                <ul className="max-h-[70vh] space-y-0.5 overflow-y-auto border-l border-line">
                   {sections.map((section) => {
-                    const c = counts(section);
+                    const isActive = active === `sec-${section.id}`;
                     return (
-                      <a
-                        key={section.id}
-                        href={`#sec-${section.id}`}
-                        className="flex items-center justify-between gap-2 px-5 py-3 transition-colors hover:bg-surface-container"
-                      >
-                        <span className="min-w-0 truncate font-body-sm text-body-sm font-semibold text-on-surface">
-                          {section.name || `${t("courses.contents")} ${section.section}`}
-                        </span>
-                        <span className="shrink-0 text-xs text-outline">
-                          {section.modules.length}
-                          {c.scorm + c.quiz > 0 && (
-                            <span className="ml-1 text-primary">●</span>
+                      <li key={section.id}>
+                        <a
+                          href={`#sec-${section.id}`}
+                          aria-current={isActive ? "location" : undefined}
+                          className={cn(
+                            "-ml-px block truncate border-l py-1.5 pl-3 text-[13px] transition-colors",
+                            isActive
+                              ? "border-primary font-medium text-primary-text"
+                              : "border-transparent text-muted hover:text-fg"
                           )}
-                        </span>
-                      </a>
+                        >
+                          {sectionTitle(section)}
+                        </a>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </div>
-            </div>
+            </nav>
           </div>
         )}
       </QueryState>

@@ -1,99 +1,156 @@
 "use client";
+import { useState } from "react";
+import Link from "next/link";
+import { App } from "antd";
+import { BellOff, CheckCheck, ChevronRight } from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
-import { useMoodle } from "@/lib/client-api";
+import { moodleClient, useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { QueryState } from "@/components/ui/QueryState";
-import { MaterialIcon } from "@/components/MaterialIcon";
-import type { NotificationsResult } from "@/lib/moodle/types";
-
-function timeAgo(unix: number) {
-  const m = Math.floor(Date.now() / 1000 - unix) / 60;
-  if (m < 1) return "now";
-  if (m < 60) return `${Math.floor(m)}m`;
-  if (m < 1440) return `${Math.floor(m / 60)}h`;
-  return `${Math.floor(m / 1440)}d`;
-}
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  QueryState,
+  Skeleton,
+  cn,
+} from "@/components/ui";
+import { isToday, timeAgo } from "@/lib/format";
+import { notifyNotificationsChanged } from "@/lib/notifications";
+import type { NotificationsResult, PopupNotification } from "@/lib/moodle/types";
 
 export default function NotificationsPage() {
   const { user } = useSession();
   const t = useT();
-  const { data, loading, error } = useMoodle<NotificationsResult>(
+  const { message } = App.useApp();
+  const [marking, setMarking] = useState(false);
+  const { data, loading, error, reload } = useMoodle<NotificationsResult>(
     "message_popup_get_popup_notifications",
     { useridto: user.id, newestfirst: 1, limit: 30, offset: 0 }
   );
 
   const notifications = data?.notifications ?? [];
+  const unread = data?.unreadcount ?? notifications.filter((n) => !n.read).length;
+
+  const groups = [
+    { key: "today", title: t("common.today"), items: notifications.filter((n) => isToday(n.timecreated)) },
+    { key: "earlier", title: t("common.earlier"), items: notifications.filter((n) => !isToday(n.timecreated)) },
+  ].filter((g) => g.items.length > 0);
+
+  async function markAllRead() {
+    setMarking(true);
+    try {
+      await moodleClient("core_message_mark_all_notifications_as_read", {
+        useridto: user.id,
+      });
+      reload();
+      notifyNotificationsChanged();
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setMarking(false);
+    }
+  }
 
   return (
-    <div className="space-y-gutter">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-container/10 text-primary">
-          <MaterialIcon name="notifications" fill />
-        </div>
-        <h2 className="font-headline-md text-headline-md text-on-surface">
-          {t("nav.notifications")}
-        </h2>
-      </div>
+    <div>
+      <PageHeader
+        title={t("nav.notifications")}
+        description={
+          data && unread > 0
+            ? t("notifications.unreadCount", { count: unread })
+            : undefined
+        }
+        actions={
+          unread > 0 ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={markAllRead}
+              disabled={marking}
+            >
+              <CheckCheck size={16} strokeWidth={1.75} />
+              {t("notifications.markAllRead")}
+            </Button>
+          ) : undefined
+        }
+      />
 
-      <QueryState loading={loading} error={error}>
-        {notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest p-lg text-center card-elevation">
-            <MaterialIcon
-              name="notifications_off"
-              className="!text-5xl text-outline-variant"
-            />
-            <p className="mt-2 font-body-md text-body-md text-on-surface-variant">
-              {t("notifications.allCaughtUp")}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {notifications.map((n, i) => (
-              <div
-                key={n.id}
-                style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
-                className={`flex items-start gap-4 rounded-xl bg-surface-container-lowest p-4 card-elevation animate-fade-in-up ${
-                  n.read ? "" : "border-l-4 border-primary"
-                }`}
-              >
-                <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-                    n.read
-                      ? "bg-surface-container text-on-surface-variant"
-                      : "bg-primary-container/10 text-primary"
-                  }`}
-                >
-                  <MaterialIcon name="campaign" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="font-body-md text-body-md font-bold text-on-surface">
-                      {n.subject}
-                    </h3>
-                    <span className="whitespace-nowrap text-xs text-outline">
-                      {timeAgo(n.timecreated)}
-                    </span>
-                  </div>
-                  <p className="mt-1 font-body-sm text-body-sm text-on-surface-variant">
-                    {n.smallmessage}
-                  </p>
-                  {n.contexturl && (
-                    <a
-                      href={n.contexturl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-1 font-label-md text-label-md text-primary hover:underline"
-                    >
-                      {n.contexturlname || t("common.view")}
-                      <MaterialIcon name="arrow_forward" className="!text-sm" />
-                    </a>
-                  )}
-                </div>
+      <QueryState
+        loading={loading}
+        error={error}
+        skeleton={
+          <Card className="divide-y divide-line">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="space-y-2 px-5 py-4">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-2/3" />
               </div>
+            ))}
+          </Card>
+        }
+      >
+        {notifications.length === 0 ? (
+          <Card>
+            <EmptyState icon={BellOff} title={t("notifications.allCaughtUp")} />
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {groups.map((g) => (
+              <Card key={g.key} className="animate-fade-in-up overflow-hidden">
+                <CardHeader title={g.title} />
+                <ul className="divide-y divide-line">
+                  {g.items.map((n) => (
+                    <NotificationRow key={n.id} n={n} />
+                  ))}
+                </ul>
+              </Card>
             ))}
           </div>
         )}
       </QueryState>
     </div>
+  );
+}
+
+function NotificationRow({ n }: { n: PopupNotification }) {
+  return (
+    <li>
+      <Link
+        href={`/notifications/${n.id}`}
+        className="group flex gap-3 px-5 py-4 transition-colors hover:bg-surface-2"
+      >
+        <span className="mt-[7px] flex w-2 shrink-0 justify-center">
+          {!n.read && <span className="h-2 w-2 rounded-full bg-primary" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-4">
+            <p
+              className={cn(
+                "text-sm",
+                n.read ? "text-muted" : "font-medium text-fg"
+              )}
+            >
+              {n.subject}
+            </p>
+            <span className="shrink-0 text-xs tabular-nums text-subtle">
+              {timeAgo(n.timecreated)}
+            </span>
+          </div>
+          {n.smallmessage && (
+            <p className="mt-1 line-clamp-2 text-[13px] text-subtle">
+              {n.smallmessage}
+            </p>
+          )}
+        </div>
+        <ChevronRight
+          size={16}
+          strokeWidth={1.75}
+          className="mt-0.5 shrink-0 text-subtle transition-colors group-hover:text-fg"
+          aria-hidden
+        />
+      </Link>
+    </li>
   );
 }

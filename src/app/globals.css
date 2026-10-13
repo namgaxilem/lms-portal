@@ -3,200 +3,154 @@
 @layer theme, base, antd, components, utilities;
 @import "tailwindcss";
 
+/* Enable `dark:` variants keyed off the `.dark` class ThemeProvider toggles. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
-  /* ── Brand-configurable knobs (driven by src/config/brand.ts via BrandStyle) ── */
-  --color-primary: var(--brand-primary);
-  --color-secondary: var(--brand-secondary);
-  --color-success: var(--brand-success);
-  --color-warning: var(--brand-warning);
-  --color-error: var(--brand-error);
-
-  /* ── Material 3 design tokens (EduFlow palette) ──
-     These reference runtime CSS variables (defined in :root / html.dark below)
-     so the whole palette can flip for dark mode at runtime. */
-  --color-on-error: var(--c-on-error);
-  --color-surface-container-high: var(--c-surface-container-high);
-  --color-inverse-primary: var(--c-inverse-primary);
-  --color-primary-container: var(--c-primary-container);
-  --color-tertiary-fixed-dim: var(--c-tertiary-fixed-dim);
-  --color-on-secondary-fixed-variant: var(--c-on-secondary-fixed-variant);
-  --color-tertiary-container: var(--c-tertiary-container);
-  --color-on-primary: var(--c-on-primary);
-  --color-on-surface: var(--c-on-surface);
-  --color-secondary-fixed: var(--c-secondary-fixed);
-  --color-on-tertiary-fixed: var(--c-on-tertiary-fixed);
-  --color-on-background: var(--c-on-background);
-  --color-on-primary-fixed: var(--c-on-primary-fixed);
-  --color-surface-dim: var(--c-surface-dim);
-  --color-on-secondary-container: var(--c-on-secondary-container);
-  --color-inverse-on-surface: var(--c-inverse-on-surface);
-  --color-surface-variant: var(--c-surface-variant);
-  --color-on-error-container: var(--c-on-error-container);
+  /* ── Semantic color tokens ──
+     Runtime CSS vars (below) flip for dark mode; brand accents come from
+     src/config/brand.ts via BrandStyle. */
+  --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
-  --color-on-secondary-fixed: var(--c-on-secondary-fixed);
-  --color-secondary-container: var(--c-secondary-container);
-  --color-error-container: var(--c-error-container);
-  --color-primary-fixed: var(--c-primary-fixed);
-  --color-tertiary-fixed: var(--c-tertiary-fixed);
-  --color-on-primary-container: var(--c-on-primary-container);
-  --color-on-secondary: var(--c-on-secondary);
-  --color-surface-tint: var(--c-surface-tint);
-  --color-surface-bright: var(--c-surface-bright);
-  --color-tertiary: var(--c-tertiary);
-  --color-surface-container-lowest: var(--c-surface-container-lowest);
-  --color-secondary-fixed-dim: var(--c-secondary-fixed-dim);
-  --color-on-surface-variant: var(--c-on-surface-variant);
-  --color-on-tertiary: var(--c-on-tertiary);
-  --color-outline: var(--c-outline);
-  --color-surface-container: var(--c-surface-container);
-  --color-surface-container-highest: var(--c-surface-container-highest);
-  --color-inverse-surface: var(--c-inverse-surface);
-  --color-on-tertiary-container: var(--c-on-tertiary-container);
-  --color-outline-variant: var(--c-outline-variant);
-  --color-on-primary-fixed-variant: var(--c-on-primary-fixed-variant);
-  --color-surface-container-low: var(--c-surface-container-low);
-  --color-on-tertiary-fixed-variant: var(--c-on-tertiary-fixed-variant);
-  --color-primary-fixed-dim: var(--c-primary-fixed-dim);
-  --color-background: var(--c-background);
+  --color-surface-2: var(--c-surface-2);
+  --color-surface-3: var(--c-surface-3);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-subtle: var(--c-subtle);
 
-  /* ── Named spacing scale (additive to Tailwind's numeric scale) ──
-     NOTE: sm/md/lg/xl shadow Tailwind spacing keys for padding, margin and gap
-     utilities. They also collide with the max-width t-shirt scale, so the
-     container vars below are re-declared to keep max-w-sm/md/lg/xl correct. */
-  --spacing-base: 4px;
-  --spacing-xs: 8px;
-  --spacing-sm: 16px;
-  --spacing-md: 24px;
-  --spacing-gutter: 24px;
-  --spacing-lg: 48px;
-  --spacing-xl: 80px;
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-primary-fg: var(--c-primary-fg);
+  --color-primary-soft: var(--c-primary-soft);
+  --color-primary-text: var(--c-primary-text);
+  --color-ring: var(--c-ring);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-violet: var(--c-violet);
+  --color-violet-soft: var(--c-violet-soft);
 
-  /* ── Type families (next/font vars set in layout.tsx) ── */
-  --font-sans: var(--font-inter), Inter, Arial, sans-serif;
-  --font-body-md: var(--font-inter), Inter, sans-serif;
-  --font-body-lg: var(--font-inter), Inter, sans-serif;
-  --font-body-sm: var(--font-inter), Inter, sans-serif;
-  --font-label-md: var(--font-inter), Inter, sans-serif;
-  --font-display-lg: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
-  --font-display-lg-mobile: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
-  --font-headline-md: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
-  --font-headline-sm: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
+  --color-success: var(--c-success);
+  --color-success-soft: var(--c-success-soft);
+  --color-warning: var(--c-warning);
+  --color-warning-soft: var(--c-warning-soft);
+  --color-error: var(--c-error);
+  --color-error-soft: var(--c-error-soft);
 
-  /* ── Type scale (size + line-height + tracking + weight) ── */
-  --text-display-lg: 48px;
-  --text-display-lg--line-height: 1.2;
-  --text-display-lg--letter-spacing: -0.02em;
-  --text-display-lg--font-weight: 700;
-  --text-display-lg-mobile: 32px;
-  --text-display-lg-mobile--line-height: 1.2;
-  --text-display-lg-mobile--font-weight: 700;
-  --text-headline-md: 24px;
-  --text-headline-md--line-height: 1.4;
-  --text-headline-md--font-weight: 600;
-  --text-headline-sm: 20px;
-  --text-headline-sm--line-height: 1.4;
-  --text-headline-sm--font-weight: 600;
-  --text-body-lg: 18px;
-  --text-body-lg--line-height: 1.6;
-  --text-body-md: 16px;
-  --text-body-md--line-height: 1.6;
-  --text-body-sm: 14px;
-  --text-body-sm--line-height: 1.5;
-  --text-label-md: 12px;
-  --text-label-md--line-height: 1;
-  --text-label-md--letter-spacing: 0.05em;
-  --text-label-md--font-weight: 600;
+  /* ── Type ── */
+  --font-sans: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
+  --text-2xs: 11px;
+  --text-2xs--line-height: 1.4;
+
+  /* ── Radii ── */
+  --radius-control: 8px;
+  --radius-card: 12px;
+
+  /* ── Shadows (neutral, only for floating layers) ── */
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.08);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04);
 }
 
 :root {
-  --background: #f8f9ff;
-  --foreground: #0b1c30;
+  color-scheme: light;
+  --c-canvas: #fafafa;
+  --c-surface: #ffffff;
+  --c-surface-2: #f4f4f5;
+  --c-surface-3: #e4e4e7;
+  --c-line: #e4e4e7;
+  --c-line-strong: #d4d4d8;
+  --c-fg: #18181b;
+  --c-muted: #52525b;
+  --c-subtle: #71717a;
 
-  /* ── M3 light palette (consumed by the @theme inline mapping above) ── */
-  --c-on-error: #ffffff;
-  --c-surface-container-high: #dce9ff;
-  --c-inverse-primary: #c3c0ff;
-  --c-primary-container: #3730a3;
-  --c-tertiary-fixed-dim: #d2bbff;
-  --c-on-secondary-fixed-variant: #005049;
-  --c-tertiary-container: #5500bc;
-  --c-on-primary: #ffffff;
-  --c-on-surface: #0b1c30;
-  --c-secondary-fixed: #89f5e7;
-  --c-on-tertiary-fixed: #25005a;
-  --c-on-background: #0b1c30;
-  --c-on-primary-fixed: #0f0069;
-  --c-surface-dim: #cbdbf5;
-  --c-on-secondary-container: #006f66;
-  --c-inverse-on-surface: #eaf1ff;
-  --c-surface-variant: #d3e4fe;
-  --c-on-error-container: #93000a;
-  --c-surface: #f8f9ff;
-  --c-on-secondary-fixed: #00201d;
-  --c-secondary-container: #86f2e4;
-  --c-error-container: #ffdad6;
-  --c-primary-fixed: #e2dfff;
-  --c-tertiary-fixed: #eaddff;
-  --c-on-primary-container: #a9a7ff;
-  --c-on-secondary: #ffffff;
-  --c-surface-tint: #544fc0;
-  --c-surface-bright: #f8f9ff;
-  --c-tertiary: #3a0085;
-  --c-surface-container-lowest: #ffffff;
-  --c-secondary-fixed-dim: #6bd8cb;
-  --c-on-surface-variant: #464553;
-  --c-on-tertiary: #ffffff;
-  --c-outline: #777584;
-  --c-surface-container: #e5eeff;
-  --c-surface-container-highest: #d3e4fe;
-  --c-inverse-surface: #213145;
-  --c-on-tertiary-container: #bf9fff;
-  --c-outline-variant: #c8c4d5;
-  --c-on-primary-fixed-variant: #3b35a7;
-  --c-surface-container-low: #eff4ff;
-  --c-on-tertiary-fixed-variant: #5a00c6;
-  --c-primary-fixed-dim: #c3c0ff;
-  --c-background: #f8f9ff;
+  --c-primary: var(--brand-primary);
+  --c-primary-hover: color-mix(in oklab, var(--brand-primary) 88%, black);
+  --c-primary-fg: #ffffff;
+  --c-primary-soft: color-mix(in oklab, var(--brand-primary) 8%, white);
+  --c-primary-text: var(--brand-primary);
+  --c-ring: color-mix(in oklab, var(--brand-primary) 40%, transparent);
+
+  --c-accent: #0284c7;
+  --c-accent-soft: #e0f2fe;
+  --c-violet: #6d28d9;
+  --c-violet-soft: #ede9fe;
+  /* Soft mesh colors (light) */
+  --mesh-a: color-mix(in oklab, var(--brand-primary) 16%, transparent);
+  --mesh-b: color-mix(in oklab, #38bdf8 22%, transparent);
+  --mesh-c: color-mix(in oklab, #a78bfa 14%, transparent);
+
+  --c-success: var(--brand-success);
+  --c-warning: var(--brand-warning);
+  --c-error: var(--brand-error);
+  --c-success-soft: color-mix(in oklab, var(--brand-success) 10%, white);
+  --c-warning-soft: color-mix(in oklab, var(--brand-warning) 14%, white);
+  --c-error-soft: color-mix(in oklab, var(--brand-error) 9%, white);
 }
 
-/* ── Dark theme: toggled by adding `.dark` to <html> (see ThemeProvider) ──
-   Only the surface / text / outline families are flipped; brand accents and
-   the M3 *-fixed accent tokens keep their light values for contrast. */
+/* ── Dark theme: toggled by adding `.dark` to <html> (see ThemeProvider) ── */
 html.dark {
-  --background: #0b1220;
-  --foreground: #e6edf7;
+  color-scheme: dark;
+  --c-canvas: #09090b;
+  --c-surface: #111113;
+  --c-surface-2: #18181b;
+  --c-surface-3: #27272a;
+  --c-line: #27272a;
+  --c-line-strong: #3f3f46;
+  --c-fg: #fafafa;
+  --c-muted: #a1a1aa;
+  --c-subtle: #8b8b94;
 
-  --c-background: #0b1220;
-  --c-surface: #0f1825;
-  --c-surface-dim: #0b1220;
-  --c-surface-bright: #2b3445;
-  --c-surface-container-lowest: #0a101b;
-  --c-surface-container-low: #131c2b;
-  --c-surface-container: #18212f;
-  --c-surface-container-high: #222c3b;
-  --c-surface-container-highest: #2c3646;
-  --c-surface-variant: #3a4252;
-  --c-surface-tint: #2d7dec;
+  /* Brand blue is too dark on near-black: fill buttons with a lifted tone and
+     use an even lighter one for text/links. */
+  --c-primary: var(--brand-primary-dark);
+  --c-primary-hover: color-mix(in oklab, var(--brand-primary-dark) 88%, white);
+  --c-primary-fg: #ffffff;
+  --c-primary-soft: color-mix(in oklab, var(--brand-primary-dark) 16%, transparent);
+  --c-primary-text: color-mix(in oklab, var(--brand-primary-dark) 70%, white);
+  --c-ring: color-mix(in oklab, var(--brand-primary-dark) 55%, transparent);
 
-  --c-on-surface: #e6edf7;
-  --c-on-background: #e6edf7;
-  --c-on-surface-variant: #b9c1cf;
-  --c-outline: #8b93a3;
-  --c-outline-variant: #38414f;
+  --c-accent: #38bdf8;
+  --c-accent-soft: color-mix(in oklab, #38bdf8 16%, transparent);
+  --c-violet: #a78bfa;
+  --c-violet-soft: color-mix(in oklab, #a78bfa 16%, transparent);
+  --mesh-a: color-mix(in oklab, var(--brand-primary-dark) 22%, transparent);
+  --mesh-b: color-mix(in oklab, #38bdf8 12%, transparent);
+  --mesh-c: color-mix(in oklab, #a78bfa 10%, transparent);
 
-  --c-inverse-surface: #e6edf7;
-  --c-inverse-on-surface: #18212f;
-  --c-inverse-primary: #14468c;
-
-  --c-primary-container: #1e2a78;
-  --c-on-primary-container: #c3c0ff;
+  /* Status colors lifted for contrast on dark surfaces. */
+  --c-success: color-mix(in oklab, var(--brand-success) 65%, white);
+  --c-warning: color-mix(in oklab, var(--brand-warning) 80%, white);
+  --c-error: color-mix(in oklab, var(--brand-error) 55%, white);
+  --c-success-soft: color-mix(in oklab, var(--brand-success) 18%, transparent);
+  --c-warning-soft: color-mix(in oklab, var(--brand-warning) 16%, transparent);
+  --c-error-soft: color-mix(in oklab, var(--brand-error) 20%, transparent);
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
   body {
-    background: var(--color-background);
-    color: var(--color-on-background);
-    font-family: var(--font-inter), Inter, Arial, sans-serif;
+    background: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
+  }
+  ::selection {
+    background: var(--c-primary-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--c-ring);
+    outline-offset: 2px;
   }
   /* Tailwind v4 no longer sets pointer cursor on buttons — restore it for all
      interactive elements so hovering shows the hand cursor. */
@@ -212,93 +166,85 @@ html.dark {
   }
 }
 
+/* ── Soft color accents (use sparingly: hero, login, banners, shell strip) ── */
 @layer components {
-  /* Soft elevation used across cards. */
-  .card-elevation {
-    box-shadow: 0px 4px 20px rgba(55, 48, 163, 0.04);
+  /* Layered radial "mesh" wash in brand blue / sky / violet. */
+  .bg-mesh {
+    background-image:
+      radial-gradient(60% 80% at 0% 0%, var(--mesh-a), transparent 70%),
+      radial-gradient(50% 70% at 100% 0%, var(--mesh-b), transparent 70%),
+      radial-gradient(60% 60% at 70% 100%, var(--mesh-c), transparent 70%);
   }
-  /* Hover-lift interaction for course/content cards. */
-  .lift {
-    transition:
-      transform 0.25s ease,
-      box-shadow 0.25s ease;
+  /* Brand-tinted overlay for legible white text on photos. */
+  .bg-photo-overlay {
+    background-image: linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--brand-primary) 88%, black) 0%,
+      color-mix(in oklab, var(--brand-primary) 70%, transparent) 55%,
+      rgb(2 6 23 / 0.55) 100%
+    );
   }
-  .lift:hover {
-    transform: translateY(-4px);
-    box-shadow: 0px 10px 32px rgba(51, 65, 85, 0.1);
-  }
-}
-
-/* The named --spacing-sm/md/lg/xl keys shadow Tailwind's max-width t-shirt
-   scale, so restore the four affected sizes to their intended rem widths. */
-@layer utilities {
-  .max-w-sm {
-    max-width: 24rem;
-  }
-  .max-w-md {
-    max-width: 28rem;
-  }
-  .max-w-lg {
-    max-width: 32rem;
-  }
-  .max-w-xl {
-    max-width: 36rem;
+  .text-gradient {
+    background-image: linear-gradient(90deg, var(--c-primary-text), var(--c-accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 }
 
-/* ── Material Symbols (icon font, loaded via @import in this file) ── */
-.material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
-  font-weight: normal;
-  font-style: normal;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  vertical-align: middle;
-  font-variation-settings:
-    "FILL" 0,
-    "wght" 400,
-    "GRAD" 0,
-    "opsz" 24;
-}
-.material-symbols-outlined.fill {
-  font-variation-settings: "FILL" 1;
+/* ── Moodle rich text (RichText component) ── */
+@layer components {
+  .rich-text {
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .rich-text > * + * { margin-top: 0.75em; }
+  .rich-text h1, .rich-text h2, .rich-text h3, .rich-text h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.25em;
+  }
+  .rich-text h1 { font-size: 1.35em; }
+  .rich-text h2 { font-size: 1.2em; }
+  .rich-text h3, .rich-text h4 { font-size: 1.05em; }
+  .rich-text a { color: var(--c-primary-text); text-decoration: underline; text-underline-offset: 2px; }
+  .rich-text ul { list-style: disc; padding-left: 1.4em; }
+  .rich-text ol { list-style: decimal; padding-left: 1.4em; }
+  .rich-text li + li { margin-top: 0.25em; }
+  .rich-text img, .rich-text video, .rich-text iframe { max-width: 100%; height: auto; border-radius: 0.5rem; }
+  .rich-text blockquote { border-left: 3px solid var(--c-line-strong); padding-left: 0.9em; color: var(--c-muted); }
+  .rich-text pre, .rich-text code { font-family: ui-monospace, monospace; font-size: 0.9em; background: var(--c-surface-2); border-radius: 0.375rem; }
+  .rich-text code { padding: 0.1em 0.35em; }
+  .rich-text pre { padding: 0.75em 1em; overflow-x: auto; }
+  .rich-text table { width: 100%; border-collapse: collapse; display: block; overflow-x: auto; }
+  .rich-text th, .rich-text td { border: 1px solid var(--c-line); padding: 0.4em 0.6em; text-align: left; }
+  .rich-text hr { border-color: var(--c-line); }
 }
 
-/* ── Custom scrollbar ── */
+/* ── Scrollbar ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-line-strong) transparent;
+}
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: #c8c4d5;
-  border-radius: 10px;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: #3b35a7;
+  background: var(--c-line-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
-/* ── Animations ── */
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
+/* ── Animations (subtle; disabled under reduced motion) ── */
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -313,50 +259,17 @@ html.dark {
     opacity: 1;
   }
 }
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(0, 106, 97, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(0, 106, 97, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(0, 106, 97, 0);
-  }
-}
 
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
 .animate-fade-in-up {
-  animation: fade-in-up 0.5s ease both;
+  animation: fade-in-up 0.3s ease both;
 }
 .animate-fade-in {
-  animation: fade-in 0.4s ease both;
-}
-.animate-scale-in {
-  animation: scale-in 0.35s ease both;
-}
-.animate-pulse-ring {
-  animation: pulse-ring 2s infinite;
+  animation: fade-in 0.2s ease both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-float,
   .animate-fade-in-up,
-  .animate-fade-in,
-  .animate-scale-in,
-  .animate-pulse-ring {
+  .animate-fade-in {
     animation: none;
   }
 }

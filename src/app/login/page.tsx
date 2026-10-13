@@ -1,10 +1,22 @@
 "use client";
 import { useState } from "react";
 import Image from "next/image";
+import loginPhoto from "../../../public/images/photos/login.webp";
 import { useRouter } from "next/navigation";
+import {
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  MessagesSquare,
+  PlayCircle,
+  ShieldCheck,
+  User,
+} from "lucide-react";
 import { useT } from "@/i18n/I18nProvider";
 import { LangSwitcher } from "@/components/LangSwitcher";
-import { MaterialIcon } from "@/components/MaterialIcon";
+import { Button, Card, Input, Label } from "@/components/ui";
 import { brand } from "@/config/brand";
 
 export default function LoginPage() {
@@ -45,173 +57,187 @@ export default function LoginPage() {
     }
   }
 
+  const features = [
+    { icon: PlayCircle, label: t("auth.heroFeatureA") },
+    { icon: MessagesSquare, label: t("auth.heroFeatureB") },
+    { icon: ShieldCheck, label: t("auth.secureNote") },
+  ];
+
   return (
-    <main className="flex min-h-screen w-full overflow-hidden">
-      {/* Left visual panel */}
-      <section className="relative hidden items-center justify-center overflow-hidden bg-primary lg:flex lg:w-1/2">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary to-tertiary" />
-        <div
-          className="absolute -left-20 -top-20 h-96 w-96 rounded-full bg-secondary/20 blur-3xl animate-float"
-          style={{ animationDelay: "0s" }}
+    <main className="flex min-h-screen w-full bg-canvas text-fg">
+      {/* Photo panel (lg+) */}
+      <aside className="relative hidden w-[55%] overflow-hidden lg:block">
+        <Image
+          src={loginPhoto}
+          alt=""
+          fill
+          priority
+          placeholder="blur"
+          sizes="55vw"
+          className="object-cover"
         />
-        <div
-          className="absolute -bottom-24 right-0 h-96 w-96 rounded-full bg-inverse-primary/20 blur-3xl animate-float"
-          style={{ animationDelay: "2s" }}
-        />
-
-        <div className="relative z-10 max-w-lg p-xl text-on-primary">
-          <span className="mb-xs inline-block rounded-full border border-secondary-container/30 bg-secondary-container/20 px-4 py-1.5 font-label-md text-label-md text-secondary-fixed backdrop-blur-sm">
-            {brand.name.toUpperCase()}
-          </span>
-          <h1 className="mb-sm font-display-lg text-display-lg leading-tight">
-            {t("auth.heroTitle")} <br />
-            <span className="text-secondary-fixed">{t("auth.heroAccent")}</span>
-          </h1>
-          <p className="font-body-lg text-body-lg leading-relaxed text-primary-fixed/80">
-            {t("auth.heroSubtitle")}
-          </p>
-
-          <div className="mt-lg grid grid-cols-2 gap-base">
-            <div
-              className="animate-float rounded-xl border border-white/10 bg-white/10 p-md backdrop-blur-md"
-              style={{ animationDelay: "0s" }}
-            >
-              <MaterialIcon name="play_circle" className="mb-xs text-secondary-fixed" />
-              <div className="font-headline-sm text-headline-sm">SCORM</div>
-              <div className="font-label-md text-label-md opacity-70">
-                {t("auth.heroFeatureA")}
-              </div>
+        <div className="bg-photo-overlay absolute inset-0" />
+        <div className="relative flex h-full flex-col justify-between p-10 text-white xl:p-14">
+          <div className="flex items-center gap-3">
+            <Image
+              src={brand.logoMark}
+              alt={brand.name}
+              width={56}
+              height={56}
+              priority
+              className="h-14 w-14 object-contain drop-shadow-lg"
+            />
+            <div className="leading-tight">
+              <p className="text-base font-semibold">{brand.appName}</p>
+              <p className="text-sm text-white/75">{brand.name}</p>
             </div>
-            <div
-              className="animate-float rounded-xl border border-white/10 bg-white/10 p-md backdrop-blur-md"
-              style={{ animationDelay: "1.5s" }}
-            >
-              <MaterialIcon name="forum" className="mb-xs text-secondary-fixed" />
-              <div className="font-headline-sm text-headline-sm">Chat</div>
-              <div className="font-label-md text-label-md opacity-70">
-                {t("auth.heroFeatureB")}
+          </div>
+
+          <div className="max-w-lg">
+            <h1 className="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">
+              {t("auth.heroTitle")}{" "}
+              <span className="bg-gradient-to-r from-sky-200 to-white bg-clip-text text-transparent">
+                {t("auth.heroAccent")}
+              </span>
+            </h1>
+            <p className="mt-4 text-base leading-relaxed text-white/80">
+              {t("auth.heroSubtitle")}
+            </p>
+            <ul className="mt-8 flex flex-wrap gap-2">
+              {features.map(({ icon: Icon, label }) => (
+                <li
+                  key={label}
+                  className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-1.5 text-sm backdrop-blur-md"
+                >
+                  <Icon size={15} strokeWidth={1.75} />
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="text-xs text-white/60">© {new Date().getFullYear()} {brand.name}</p>
+        </div>
+      </aside>
+
+      {/* Form column */}
+      <section className="bg-mesh relative flex flex-1 flex-col items-center justify-center px-4 py-16 sm:px-6">
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+          <LangSwitcher />
+        </div>
+
+        <div className="w-full max-w-sm animate-fade-in-up">
+          {/* Mobile: photo banner with logo */}
+          <div className="relative mb-6 overflow-hidden rounded-2xl lg:hidden">
+            <Image
+              src={loginPhoto}
+              alt=""
+              placeholder="blur"
+              sizes="(max-width: 1024px) 100vw, 0px"
+              className="h-36 w-full object-cover"
+              priority
+            />
+            <div className="bg-photo-overlay absolute inset-0" />
+            <div className="absolute inset-0 flex items-center gap-3 px-5 text-white">
+              <Image
+                src={brand.logoMark}
+                alt={brand.name}
+                width={52}
+                height={52}
+                className="h-13 w-13 object-contain drop-shadow-lg"
+              />
+              <div className="min-w-0 leading-tight">
+                <p className="text-base font-semibold">{brand.appName}</p>
+                <p className="truncate text-xs text-white/80">{brand.name}</p>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="absolute bottom-gutter left-gutter z-10 flex items-center gap-xs">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/95 p-1.5 shadow-lg">
+          <div className="mb-6 hidden justify-center lg:flex">
             <Image
-              src="/images/main-logo.png"
-              alt={brand.name}
-              width={40}
-              height={40}
-              className="h-full w-full object-contain"
+              src={brand.logoMark}
+              alt=""
+              width={64}
+              height={64}
+              className="h-16 w-16 object-contain drop-shadow-md"
             />
           </div>
-          <span className="font-headline-md text-headline-md font-extrabold tracking-tight text-on-primary">
-            {brand.shortName}
-          </span>
-        </div>
-      </section>
 
-      {/* Right form panel */}
-      <section className="flex w-full items-center justify-center bg-surface p-sm md:p-gutter lg:w-1/2">
-        <div className="w-full max-w-md animate-fade-in-up">
-          <div className="mb-lg flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Image
-                src="/images/main-logo.png"
-                alt={brand.name}
-                width={48}
-                height={48}
-                className="h-12 w-12 object-contain"
-                priority
-              />
-              <span className="font-headline-sm text-headline-sm font-extrabold text-primary lg:hidden">
-                {brand.shortName}
-              </span>
+          <Card className="p-6 shadow-pop sm:p-7">
+            <div className="mb-6">
+              <h2 className="text-2xl font-semibold tracking-tight text-fg">
+                {t("auth.welcome")}
+              </h2>
+              <p className="mt-1 text-sm text-muted">{t("auth.subtitle")}</p>
             </div>
-            <LangSwitcher />
-          </div>
 
-          <div className="mb-lg">
-            <h2 className="mb-xs font-headline-md text-headline-md text-on-surface">
-              {t("auth.welcome")}
-            </h2>
-            <p className="font-body-md text-body-md text-on-surface-variant">
-              {t("auth.subtitle")}
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-sm flex items-center gap-2 rounded-xl bg-error-container px-4 py-3 font-body-sm text-body-sm text-on-error-container animate-fade-in">
-              <MaterialIcon name="error" className="!text-lg" />
-              {error}
-            </div>
-          )}
-
-          <form className="space-y-sm" onSubmit={onSubmit}>
-            <div className="space-y-base">
-              <label
-                htmlFor="username"
-                className="px-1 font-label-md text-label-md uppercase tracking-wider text-on-surface-variant"
+            {error && (
+              <div
+                role="alert"
+                className="mb-4 flex items-start gap-2 rounded-lg border border-error/20 bg-error-soft px-3 py-2.5 text-[13px] text-error"
               >
-                {t("auth.username")}
-              </label>
-              <div className="relative">
-                <MaterialIcon
-                  name="person"
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-outline"
-                />
-                <input
+                <AlertCircle size={16} strokeWidth={1.75} className="mt-px shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form className="space-y-4" onSubmit={onSubmit} noValidate>
+              <div>
+                <Label htmlFor="username">{t("auth.username")}</Label>
+                <Input
                   id="username"
                   name="username"
+                  icon={User}
                   autoComplete="username"
-                  className="w-full rounded-xl border-none bg-surface-container-low py-4 pl-12 pr-4 font-body-md text-body-md text-on-surface outline-none transition-all placeholder:text-outline/50 focus:bg-white focus:ring-2 focus:ring-primary"
-                  placeholder="namgaxilem"
+                  autoFocus
+                  placeholder={t("auth.usernamePlaceholder")}
                 />
               </div>
-            </div>
 
-            <div className="space-y-base">
-              <label
-                htmlFor="password"
-                className="px-1 font-label-md text-label-md uppercase tracking-wider text-on-surface-variant"
-              >
-                {t("auth.password")}
-              </label>
-              <div className="relative">
-                <MaterialIcon
-                  name="lock"
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-outline"
-                />
-                <input
+              <div>
+                <Label htmlFor="password">{t("auth.password")}</Label>
+                <Input
                   id="password"
                   name="password"
+                  icon={Lock}
                   type={showPass ? "text" : "password"}
                   autoComplete="current-password"
-                  className="w-full rounded-xl border-none bg-surface-container-low py-4 pl-12 pr-12 font-body-md text-body-md text-on-surface outline-none transition-all placeholder:text-outline/50 focus:bg-white focus:ring-2 focus:ring-primary"
                   placeholder="••••••••"
+                  trailing={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={showPass ? t("auth.hidePassword") : t("auth.showPassword")}
+                      aria-pressed={showPass}
+                      onClick={() => setShowPass((s) => !s)}
+                    >
+                      {showPass ? (
+                        <EyeOff size={16} strokeWidth={1.75} />
+                      ) : (
+                        <Eye size={16} strokeWidth={1.75} />
+                      )}
+                    </Button>
+                  }
                 />
-                <button
-                  type="button"
-                  aria-label="Toggle password"
-                  onClick={() => setShowPass((s) => !s)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-outline transition-colors hover:text-on-surface"
-                >
-                  <MaterialIcon name={showPass ? "visibility_off" : "visibility"} />
-                </button>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-xs flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 font-headline-sm text-headline-sm text-on-primary shadow-[0px_4px_20px_rgba(31,16,142,0.2)] transition-all duration-300 hover:bg-on-primary-fixed-variant active:scale-[0.98] disabled:opacity-70"
-            >
-              {loading && (
-                <MaterialIcon name="progress_activity" className="animate-spin" />
-              )}
-              {t("auth.signIn")}
-            </button>
-          </form>
+              <Button
+                type="submit"
+                size="lg"
+                disabled={loading}
+                aria-busy={loading}
+                className="mt-2 w-full"
+              >
+                {loading && <Loader2 size={16} strokeWidth={2} className="animate-spin" />}
+                {t("auth.signIn")}
+              </Button>
+            </form>
+          </Card>
+
+          <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-subtle">
+            <ShieldCheck size={14} strokeWidth={1.75} />
+            {t("auth.secureNote")}
+          </p>
         </div>
       </section>
     </main>

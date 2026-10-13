@@ -15,6 +15,8 @@ export const brand = {
   shortName: "UFM",
   description: "Hệ thống E-Learning của Trường Đại học Tài chính- Marketing",
   tagline: "UFM LMS",
+  // Compact label for the app sidebar / header
+  appName: "UFM Learning",
 
   // Contact & Location
   contact: {
@@ -24,10 +26,11 @@ export const brand = {
     website: "https://lms-ufm.edu.vn",
   },
 
-  // Colors - Material 3 Palette
-  // `primary` + `secondary` are the main knobs; the full M3 scale lives in globals.css @theme
+  // Colors — `primary` is the single accent; neutrals live in globals.css.
+  // `primaryDark` is the lifted accent used in dark mode for contrast.
   colors: {
     primary: "#14468c",
+    primaryDark: "#3b7ae0",
     secondary: "#2d7dec",
     success: "#2d8659",
     warning: "#f59e0b",
@@ -38,6 +41,8 @@ export const brand = {
   // logo: path under /public (e.g., "/logo.png"), or null to show the name text
   // favicon: path under /public (e.g., "/favicon.ico")
   logo: null as string | null,
+  // Square, tightly-cropped mark used in the app shell, login and landing.
+  logoMark: "/images/logo-mark.png",
   favicon: "/favicon.ico",
 
   // OpenGraph Metadata (for social sharing, SEO)
@@ -57,7 +62,7 @@ export const brand = {
   },
 
   // Visual tuning shared by antd + the app shell
-  borderRadius: 10,
+  borderRadius: 8,
 } as const;
 
 export type Brand = typeof brand;

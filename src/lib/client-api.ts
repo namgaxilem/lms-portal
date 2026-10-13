@@ -1,15 +1,22 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 
-/** Call a Moodle web service function through the authenticated proxy. */
+/**
+ * Call a Moodle web service function through the authenticated proxy.
+ * `keepalive` lets the request outlive the page (used to flush SCORM tracks on unload).
+ */
 export async function moodleClient<T = unknown>(
   wsfunction: string,
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown> = {},
+  { keepalive = false }: { keepalive?: boolean } = {}
 ): Promise<T> {
+  const body = JSON.stringify({ wsfunction, args });
   const res = await fetch("/api/moodle", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wsfunction, args }),
+    body,
+    // Browsers cap keepalive bodies at 64KB; fall back to a normal request above that.
+    keepalive: keepalive && body.length < 60_000,
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Request failed");
@@ -59,4 +66,18 @@ export function useMoodle<T = unknown>(
   }, [run, skip]);
 
   return { ...state, reload: run };
+}
+
+/**
+ * Upload files into the user's Moodle draft area via /api/moodle/upload.
+ * Pass an existing `itemid` to add to that draft area. Returns the draft itemid.
+ */
+export async function uploadDraftFiles(files: File[], itemid = 0): Promise<number> {
+  const form = new FormData();
+  for (const f of files) form.append("file", f, f.name);
+  form.set("itemid", String(itemid));
+  const res = await fetch("/api/moodle/upload", { method: "POST", body: form });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? "Upload failed");
+  return json.itemid as number;
 }
