@@ -15,10 +15,8 @@ request). Changing a value only needs a restart, not a rebuild.
 | `MOODLE_GRADING_TOKEN` | no | Token of a dedicated read-only service used for rubric and marking-guide grading (see `.env.example`). Without it, grading falls back to simple points. |
 | `MOODLE_MAX_UPLOAD_MB` | no | Per-file upload limit for assignment submissions (default 50). |
 
-No `NEXT_PUBLIC_*` variable is needed. The browser gets the Moodle public URL from a small inline
-script that the root layout renders (`src/lib/public-config.ts`). The old `NEXT_PUBLIC_MOODLE_URL` is
-still read at runtime (between `MOODLE_PUBLIC_URL` and `MOODLE_URL`) so existing deployments keep
-working; new deployments should use `MOODLE_PUBLIC_URL`.
+There are no `NEXT_PUBLIC_*` variables. The browser gets the Moodle public URL from a small inline
+script that the root layout renders (`src/lib/public-config.ts`).
 
 ## 2. School branding (`BRAND_*`)
 
