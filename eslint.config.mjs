@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local, git-ignored design mockups (plain HTML/JS, not app code).
+    ".mockups/**",
   ]),
 ]);
 

@@ -2,6 +2,11 @@
 import { use } from "react";
 import { ScormPlayer } from "@/components/scorm/ScormPlayer";
 
+/**
+ * /scorm/{cmid}[?course={courseId}] — the native SCORM player. Links that know
+ * the course should pass `?course=`: it saves the player one Moodle round trip
+ * (core_course_get_course_module) before it can load the package.
+ */
 export default function ScormPlayerPage({
   params,
   searchParams,

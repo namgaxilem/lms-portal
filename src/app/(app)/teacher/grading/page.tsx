@@ -2,12 +2,11 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
-import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { CourseSelect } from "@/components/CourseSelect";
-import { Card, EmptyState, PageHeader, QueryState } from "@/components/ui";
-import { AssignmentRow } from "@/components/grading/AssignmentRow";
-import type { AssignmentsResult } from "@/lib/moodle/types";
+import { Card, EmptyState, PageHeader, QueryState, Skeleton } from "@/components/ui";
+import { CourseAssignments } from "@/components/grading/CourseAssignments";
+import { GradingCoursePicker } from "@/components/grading/GradingCoursePicker";
+import { useGradableCourses } from "@/components/grading/useGradableCourses";
 
 export default function TeacherGradingPage({
   searchParams,
@@ -17,49 +16,45 @@ export default function TeacherGradingPage({
   const t = useT();
   const router = useRouter();
   const { course } = use(searchParams);
+  const { courses, loading, error } = useGradableCourses();
   // ?course= keeps the selection when coming back from a grading workspace.
-  const [courseid, setCourseid] = useState<number | undefined>(Number(course) || undefined);
-  const [now] = useState(() => Date.now() / 1000);
+  const [picked, setPicked] = useState<number | undefined>(Number(course) || undefined);
+  const selected = courses.find((c) => c.id === picked) ?? courses[0];
 
-  const pickCourse = (id: number) => {
-    setCourseid(id);
+  const pick = (id: number) => {
+    setPicked(id);
     router.replace(`/teacher/grading?course=${id}`, { scroll: false });
   };
-
-  const { data, loading, error } = useMoodle<AssignmentsResult>(
-    "mod_assign_get_assignments",
-    { courseids: courseid ? [courseid] : [] },
-    courseid === undefined
-  );
-  const assignments = data?.courses?.flatMap((c) => c.assignments) ?? [];
 
   return (
     <div>
       <PageHeader
+        eyebrow={t("nav.teaching")}
         title={t("nav.grading")}
         description={t("grading.subtitle")}
-        actions={<CourseSelect value={courseid} onChange={pickCourse} />}
+        actions={
+          courses.length > 0 && <GradingCoursePicker courses={courses} value={selected?.id} onChange={pick} />
+        }
       />
 
-      {courseid === undefined ? (
-        <Card>
-          <EmptyState icon={ClipboardCheck} title={t("grading.selectCourse")} />
-        </Card>
-      ) : (
-        <QueryState loading={loading} error={error}>
-          {assignments.length === 0 ? (
-            <Card>
-              <EmptyState icon={ClipboardCheck} title={t("grading.noAssignments")} />
-            </Card>
-          ) : (
-            <Card className="divide-y divide-line overflow-hidden animate-fade-in-up">
-              {assignments.map((a) => (
-                <AssignmentRow key={a.id} assignment={a} now={now} courseid={courseid} />
-              ))}
-            </Card>
-          )}
-        </QueryState>
-      )}
+      <QueryState
+        loading={loading}
+        error={error}
+        skeleton={
+          <div className="space-y-5">
+            <Skeleton className="h-28 w-full rounded-card" />
+            <Skeleton className="h-72 w-full rounded-card" />
+          </div>
+        }
+      >
+        {selected ? (
+          <CourseAssignments key={selected.id} course={selected} />
+        ) : (
+          <Card>
+            <EmptyState icon={ClipboardCheck} title={t("grading.noGradableTitle")} hint={t("grading.noGradableHint")} />
+          </Card>
+        )}
+      </QueryState>
     </div>
   );
 }

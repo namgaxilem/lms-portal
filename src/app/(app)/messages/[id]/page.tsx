@@ -1,12 +1,12 @@
 "use client";
 import { use } from "react";
-import { MessagesView } from "@/components/MessagesView";
+import { MessagesView } from "@/components/messages/MessagesView";
 
-export default function MessageThreadPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+/** /messages/{userId}: the 1:1 chat with that person (your own id: personal notes). */
+export default function MessageThreadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  return <MessagesView targetUserId={Number(id)} />;
+  const userId = Number(id);
+  return (
+    <MessagesView target={Number.isInteger(userId) && userId > 0 ? { kind: "user", userId } : undefined} />
+  );
 }

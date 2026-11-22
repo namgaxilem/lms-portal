@@ -1,33 +1,7 @@
 "use client";
 import { createContext, useContext, useMemo, useState } from "react";
-import en from "./dictionaries/en";
-import vi from "./dictionaries/vi";
 import { LANG_COOKIE, type Locale } from "./config";
-
-const DICTS = { en, vi } as const;
-
-/** Resolve a dot-path key against a dictionary, then fill {param} placeholders. */
-function translate(
-  dict: object,
-  key: string,
-  params?: Record<string, string | number>
-): string {
-  const value = key
-    .split(".")
-    .reduce<unknown>(
-      (o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined),
-      dict
-    );
-  let str = typeof value === "string" ? value : key;
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      str = str.replace(`{${k}}`, String(v));
-    }
-  }
-  return str;
-}
-
-type TFn = (key: string, params?: Record<string, string | number>) => string;
+import { translator, type TFn } from "./translate";
 
 interface I18nContextValue {
   locale: Locale;
@@ -52,8 +26,7 @@ export function I18nProvider({
       document.cookie = `${LANG_COOKIE}=${next};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
       document.documentElement.lang = next;
     };
-    const t: TFn = (key, params) => translate(DICTS[locale], key, params);
-    return { locale, setLocale, t };
+    return { locale, setLocale, t: translator(locale) };
   }, [locale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

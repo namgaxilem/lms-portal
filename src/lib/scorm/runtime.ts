@@ -6,19 +6,31 @@ import type { ScormTrack } from "@/lib/moodle/types";
  * values to `onCommit`, which persists them via mod_scorm_insert_scorm_tracks.
  *
  * Behaviour mirrors Moodle's own player (mod/scorm/datamodels/*.js and the
- * Moodle app's AddonModScormDataModel12): Moodle stores array indexes as `_n.`
- * (cmi.interactions_0.id), session time is folded into total_time on finish,
+ * Moodle app's AddonModScormDataModel12): Moodle stores SCORM 1.2 array indexes
+ * as `_n.` (cmi.interactions_0.id) and SCORM 2004 ones in dot form
+ * (cmi.interactions.0.id), session time is folded into total_time on finish,
  * and SCORM 1.2 status is derived on finish (not attempted → completed,
  * mastery_score → passed/failed). Validation is intentionally lenient: real
  * packages send out-of-spec values and Moodle accepts them.
  */
 
 export type ScormVersion = "1.2" | "2004";
-export type ScormMode = "normal" | "review" | "browse";
-export type NavRequest = "continue" | "previous" | null;
+export type ScormMode = "normal" | "review";
+/**
+ * What the SCO asked for when it terminated (2004 adl.nav.request, 1.2 nav.event).
+ * `exit` ends this SCO without flow navigation; `exitAll` (exitAll, suspendAll,
+ * abandonAll) leaves the package; `choice` targets a SCO by manifest identifier.
+ */
+export type NavRequest =
+  | { kind: "continue" }
+  | { kind: "previous" }
+  | { kind: "choice"; target: string }
+  | { kind: "exit" }
+  | { kind: "exitAll" }
+  | null;
 type Values = Record<string, string>;
 
-export interface RuntimeOptions {
+interface RuntimeOptions {
   version: ScormVersion;
   mode: ScormMode;
   /** Moodle `defaultdata` for this SCO (student id/name, entry, credit…). */
@@ -38,10 +50,19 @@ export interface RuntimeOptions {
 /* ---------------- Moodle element name format ---------------- */
 
 const INDEX = /[._](\d+)\./g;
-/** cmi.interactions_0.id → cmi.interactions.0.id */
-const toDot = (el: string) => el.replace(INDEX, ".$1.");
-/** cmi.interactions.0.id → cmi.interactions_0.id */
-const toMoodle = (el: string) => el.replace(INDEX, "_$1.");
+/**
+ * Any stored form → dot form: cmi.interactions_0.id (1.2), and the
+ * cmi.objectives.N0.id that Moodle preloads for 2004 sequencing objectives
+ * (scorm_13lib.php get_scorm_default), both become cmi.objectives.0.id.
+ */
+const toDot = (el: string) => el.replace(/\.N(\d+)\./g, ".$1.").replace(INDEX, ".$1.");
+/**
+ * Dot form → the name Moodle's own player stores: `_n.` for SCORM 1.2
+ * (scorm_12.js), unchanged dot form for 2004 (scorm_13.js + module.js
+ * underscore()), which Moodle's objectives report and resume code expect.
+ */
+const toStored = (el: string, version: ScormVersion) =>
+  version === "1.2" ? el.replace(INDEX, "_$1.") : el;
 /** cmi.interactions.0.id → cmi.interactions.n.id */
 const toGeneric = (el: string) => el.replace(/\.\d+\./g, ".n.").replace(/\.\d+$/, ".n");
 
@@ -192,8 +213,13 @@ export class ScormRuntime {
           };
 
     for (const [k, v] of Object.entries(opts.defaults)) this.values[toDot(k)] = String(v ?? "");
-    for (const [k, v] of Object.entries(opts.tracked)) {
-      if (k.startsWith("cmi.")) this.values[toDot(k)] = String(v ?? "");
+    // Older portal builds saved 2004 arrays as cmi.objectives_0.*, and that row stays
+    // next to the newer dot-form one. Apply other spellings first so the form this
+    // version stores always wins, whatever order Moodle returns the rows in.
+    const tracked = Object.entries(opts.tracked).filter(([k]) => k.startsWith("cmi."));
+    const isStoredForm = ([k]: [string, string]) => toStored(toDot(k), this.v) === k;
+    for (const [k, v] of [...tracked.filter((e) => !isStoredForm(e)), ...tracked.filter(isStoredForm)]) {
+      this.values[toDot(k)] = String(v ?? "");
     }
 
     const credit = opts.mode === "normal" ? "credit" : "no-credit";
@@ -352,8 +378,12 @@ export class ScormRuntime {
 
   private navRequest(): NavRequest {
     const nav = this.values[this.el.nav] ?? "";
-    if (nav === "continue") return "continue";
-    if (nav === "previous") return "previous";
+    if (nav === "continue" || nav === "previous") return { kind: nav };
+    if (this.v === "1.2") return null;
+    const choice = /^\{target=([^}]+)\}(choice|jump)$/.exec(nav);
+    if (choice) return { kind: "choice", target: choice[1] };
+    if (nav === "exit" || nav === "abandon") return { kind: "exit" };
+    if (nav === "exitAll" || nav === "suspendAll" || nav === "abandonAll") return { kind: "exitAll" };
     return null;
   }
 
@@ -362,7 +392,7 @@ export class ScormRuntime {
     const val = this.values;
     if (this.v === "1.2") {
       if (val["cmi.core.lesson_status"] === "not attempted") {
-        val["cmi.core.lesson_status"] = this.opts.mode === "browse" ? "browsed" : "completed";
+        val["cmi.core.lesson_status"] = "completed";
       }
       const mastery = val["cmi.student_data.mastery_score"] ?? "";
       const raw = val["cmi.core.score.raw"] ?? "";
@@ -397,7 +427,7 @@ export class ScormRuntime {
       if (!key.startsWith("cmi.") || key === this.el.session) continue;
       if (READ_ONLY[this.v].test(key) || /\._(children|count)$/.test(key)) continue;
       if (this.committed[key] === value) continue;
-      tracks.push({ element: toMoodle(key), value });
+      tracks.push({ element: toStored(key, this.v), value });
       this.committed[key] = value;
     }
 

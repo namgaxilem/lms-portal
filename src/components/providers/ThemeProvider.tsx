@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "theme";
 
@@ -11,41 +11,47 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+/* The source of truth is the `dark` class on <html>: an inline script in the
+   root layout sets it before paint from localStorage / the system preference,
+   and setDark() below updates it. React subscribes to it as an external store,
+   so there is no flash and no state to sync in effects. */
+const listeners = new Set<() => void>();
+const subscribe = (onChange: () => void) => {
+  listeners.add(onChange);
+  return () => {
+    listeners.delete(onChange);
+  };
+};
+const getSnapshot = () => document.documentElement.classList.contains("dark");
+const getServerSnapshot = () => false;
+
+function setDark(value: boolean) {
+  document.documentElement.classList.toggle("dark", value);
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? "dark" : "light");
+  } catch {
+    // Storage unavailable (private mode): the choice lasts for this page only.
+  }
+  listeners.forEach((l) => l());
+}
+
 /**
- * Tracks the light/dark preference, mirrors it onto `<html class="dark">` (which
- * flips the CSS variables in globals.css) and persists it to localStorage. An
- * inline script in the root layout applies the saved class before paint, so this
- * provider only needs to keep React state in sync — no flash on first load.
+ * The phone browser's bar continues the school-coloured top bar in the chosen
+ * theme: the root layout's viewport.themeColor only follows the system preference.
  */
+function syncThemeColor() {
+  const color = getComputedStyle(document.documentElement).getPropertyValue("--c-sidebar").trim();
+  if (!color) return;
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    meta.content = color;
+  });
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [dark, setDark] = useState(false);
-  const hydrated = useRef(false);
-
-  // Read the persisted (or system) preference once on mount.
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const initial = saved
-      ? saved === "dark"
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setDark(initial);
-  }, []);
-
-  // Reflect the preference onto the document + storage whenever it changes.
-  // Skipped on the first run so the pre-paint class isn't wiped before the
-  // saved preference is read.
-  useEffect(() => {
-    if (!hydrated.current) {
-      hydrated.current = true;
-      return;
-    }
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem(STORAGE_KEY, dark ? "dark" : "light");
-  }, [dark]);
-
+  const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  useEffect(syncThemeColor, [dark]);
   return (
-    <ThemeContext.Provider
-      value={{ dark, toggle: () => setDark((d) => !d), setDark }}
-    >
+    <ThemeContext.Provider value={{ dark, toggle: () => setDark(!dark), setDark }}>
       {children}
     </ThemeContext.Provider>
   );

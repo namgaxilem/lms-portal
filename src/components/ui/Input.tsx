@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "./cn";
 
 export const inputClass =
-  "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-fg outline-none transition-[border-color,box-shadow] placeholder:text-subtle hover:border-line-strong focus:border-primary focus:ring-4 focus:ring-ring/30 disabled:opacity-60";
+  "h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-sm text-fg outline-none transition-[border-color,box-shadow] placeholder:text-subtle hover:border-line-strong focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60";
 
 /** Text field with optional leading icon and trailing slot. */
 export function Input({
@@ -23,11 +23,11 @@ export function Input({
         <Icon
           size={16}
           strokeWidth={1.75}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle"
+          className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-subtle"
         />
       )}
       <input
-        className={cn(inputClass, Icon && "pl-9", trailing && "pr-11", className)}
+        className={cn(inputClass, Icon && "pl-10", trailing && "pr-11", className)}
         {...props}
       />
       {trailing && (

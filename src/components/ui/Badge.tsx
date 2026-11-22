@@ -1,38 +1,53 @@
 import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
-export type Tone =
-  | "neutral"
-  | "primary"
-  | "accent"
-  | "violet"
-  | "success"
-  | "warning"
-  | "danger";
+export type Tone = "neutral" | "primary" | "accent" | "violet" | "success" | "warning" | "danger";
 
+/** Soft tinted pill colours (text meets AA on the tint in light and dark). */
 export const toneClass: Record<Tone, string> = {
-  neutral: "border-line bg-surface-2 text-muted",
-  primary: "border-transparent bg-primary-soft text-primary-text",
-  accent: "border-transparent bg-accent-soft text-accent",
-  violet: "border-transparent bg-violet-soft text-violet",
-  success: "border-transparent bg-success-soft text-success",
-  warning: "border-transparent bg-warning-soft text-[#b45309] dark:text-warning",
-  danger: "border-transparent bg-error-soft text-error",
+  neutral: "bg-surface-2 text-muted",
+  primary: "bg-primary-soft text-primary-text",
+  accent: "bg-accent-soft text-accent",
+  violet: "bg-violet-soft text-violet",
+  success: "bg-success-soft text-success-text",
+  warning: "bg-warning-soft text-warning-text",
+  danger: "bg-error-soft text-error-text",
 };
 
-/** Small status pill. `dot` prepends a colored dot. */
+/** Solid fills with white (or brand foreground) text, all at least 4.5:1. */
+export const solidClass: Record<Tone, string> = {
+  neutral: "bg-slate-600 text-white",
+  primary: "bg-primary text-primary-fg",
+  accent: "bg-sky-700 text-white",
+  violet: "bg-violet-600 text-white",
+  success: "bg-emerald-700 text-white",
+  warning: "bg-amber-700 text-white",
+  danger: "bg-rose-600 text-white",
+};
+
+/* Sizes are a prop: `cn` does not merge Tailwind classes, so a height passed in
+   `className` would not reliably override the default one. */
+const sizes = {
+  sm: "h-5 px-2 text-[11px]",
+  md: "h-6 px-2.5 text-xs",
+};
+
+/** Small status pill. `solid` for urgent states; `dot` prepends a coloured dot. */
 export function Badge({
   tone = "neutral",
+  solid,
   dot,
+  size = "md",
   className,
   children,
   ...props
-}: ComponentProps<"span"> & { tone?: Tone; dot?: boolean }) {
+}: ComponentProps<"span"> & { tone?: Tone; solid?: boolean; dot?: boolean; size?: keyof typeof sizes }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 text-xs font-medium",
-        toneClass[tone],
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold",
+        sizes[size],
+        solid ? solidClass[tone] : toneClass[tone],
         className
       )}
       {...props}

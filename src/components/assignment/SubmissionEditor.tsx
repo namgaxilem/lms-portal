@@ -1,70 +1,99 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App } from "antd";
-import {
-  FileText,
-  LoaderCircle,
-  Paperclip,
-  RotateCcw,
-  Save,
-  TriangleAlert,
-  Upload,
-  X,
-} from "lucide-react";
-import { useT } from "@/i18n/I18nProvider";
-import { Badge, Button, Card, CardHeader, RichText, cn } from "@/components/ui";
+import { FilePen, LoaderCircle, Paperclip, RotateCcw, Save, Send, TriangleAlert, CloudUpload, X } from "lucide-react";
+import { useLocale, useT } from "@/i18n/I18nProvider";
+import { Badge, Button, Card, CardHeader, IconTile, QueryState, cn } from "@/components/ui";
 import { moodleClient, uploadDraftFiles } from "@/lib/client-api";
-import type { AssignSubmission, Assignment, MoodleFile } from "@/lib/moodle/types";
+import { formatFileSize } from "@/lib/moodle/files";
+import { useKeyedAsync } from "@/lib/moodle/hooks";
+import type { AssignSubmission, Assignment, MoodleFile, MoodleWarning, SubmissionStatus } from "@/lib/moodle/types";
+import { FileRow } from "@/components/FileList";
+import { ErrorList, StatementCheckbox } from "./FormParts";
 import {
+  FileRefetchError,
   countWords,
+  currentSubmission,
   emptyDraftItemid,
   fetchAsFile,
   fileAllowed,
-  formatBytes,
+  hasEmbeddedMedia,
   htmlToText,
   isRichHtml,
   onlineText,
+  statementText,
   submissionFiles,
   textToHtml,
+  toPluginfilePlaceholders,
   warningMessages,
   type SubmissionSettings,
-  type WsWarning,
 } from "./lib";
 
 type EditFile =
   | { key: string; kind: "existing"; file: MoodleFile }
   | { key: string; kind: "new"; file: File };
 
+const fileName = (f: EditFile) => (f.kind === "new" ? f.file.name : f.file.filename);
+
 const textareaClass =
-  "min-h-56 w-full resize-y rounded-lg border border-line bg-surface px-3 py-2.5 text-sm leading-relaxed text-fg outline-none transition-[border-color,box-shadow] placeholder:text-subtle hover:border-line-strong focus:border-primary focus:ring-4 focus:ring-ring/30 disabled:opacity-60";
+  "min-h-56 w-full resize-y rounded-2xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-fg outline-none transition-[border-color,box-shadow] placeholder:text-subtle hover:border-line-strong focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60 aria-invalid:border-error aria-invalid:focus:border-error aria-invalid:focus:ring-error/20";
+
+interface EditorProps {
+  assignment: Assignment;
+  settings: SubmissionSettings;
+  onSaved: () => void;
+  onCancel: () => void;
+}
 
 /**
- * Edit form for the current user's submission (online text + files).
- *
- * Save sequence: re-upload kept files + upload new files into one draft area
- * (only when the file set changed), then mod_assign_save_submission.
+ * Edit form for the current user's submission (online text + files). It opens
+ * on its own unfiltered read of the submission: the page's copy is filtered
+ * for display (one language of a multilang text, autolinks, emoticon images),
+ * and an unchanged text is saved back exactly as read.
  */
-export function SubmissionEditor({
+export function SubmissionEditor(props: EditorProps) {
+  const { assignment, onCancel } = props;
+  const t = useT();
+  const stored = useKeyedAsync(`assign-edit:${assignment.id}`, () =>
+    moodleClient<SubmissionStatus>("mod_assign_get_submission_status", { assignid: assignment.id }, { filter: false })
+  );
+  if (stored.data) return <EditorForm {...props} submission={currentSubmission(stored.data, assignment)} />;
+  return (
+    <Card className="space-y-4 p-5">
+      <QueryState loading={stored.loading} error={stored.error} onRetry={stored.reload}>
+        {null}
+      </QueryState>
+      {stored.error && (
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onCancel}>
+            <RotateCcw size={16} strokeWidth={1.85} />
+            {t("assignment.editor.cancel")}
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Save sequence: upload the file set into one draft area when it changed (or
+ * when the text is empty, since Moodle rejects a save whose data looks empty),
+ * then mod_assign_save_submission.
+ */
+function EditorForm({
   assignment,
   settings,
   submission,
   onSaved,
   onCancel,
-}: {
-  assignment: Assignment;
-  settings: SubmissionSettings;
-  submission?: AssignSubmission;
-  onSaved: () => void;
-  onCancel: () => void;
-}) {
+}: EditorProps & { submission?: AssignSubmission }) {
   const t = useT();
+  const { locale } = useLocale();
   const { message } = App.useApp();
+  const maxSize = formatFileSize(settings.maxBytes, locale);
 
   const original = onlineText(submission?.plugins);
-  const [initialText] = useState(() =>
-    original ? (original.format === 1 ? htmlToText(original.text) : original.text) : ""
-  );
-  const richOriginal = !!original && original.format === 1 && isRichHtml(original.text);
+  const [initialText] = useState(() => (original ? htmlToText(original.text) : ""));
   const originalFiles = submissionFiles(submission?.plugins);
 
   const [text, setText] = useState(initialText);
@@ -76,47 +105,55 @@ export function SubmissionEditor({
   const [dragging, setDragging] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const headingRef = useRef<HTMLSpanElement>(null);
+
+  // The button that opened the editor is gone: start in the text box (or on the title).
+  useEffect(() => {
+    (textRef.current ?? headingRef.current)?.focus();
+  }, []);
 
   const words = countWords(text);
   const overWords = settings.wordLimit > 0 && words > settings.wordLimit;
-  const needsStatement =
-    !assignment.submissiondrafts && !!assignment.requiresubmissionstatement;
+  // Without drafts, saving submits: Moodle asks for the statement in this form.
+  const statement = assignment.submissiondrafts ? null : statementText(assignment);
+
+  const textChanged = text !== initialText;
+  const keepsOriginal = !!original && !textChanged;
+  const filesChanged =
+    files.some((f) => f.kind === "new") || files.length !== originalFiles.length;
+  // Mirrors Moodle's onlinetext submission_is_empty(): words, or embedded media.
+  const sendsText =
+    settings.onlinetext && (words > 0 || (keepsOriginal && hasEmbeddedMedia(original.text)));
+  const empty = !sendsText && !(settings.file && files.length > 0);
+  const disabled = busy !== null;
 
   const addFiles = (list: FileList | File[]) => {
-    const incoming = Array.from(list);
     const problems: string[] = [];
     const next = [...files];
-    for (const f of incoming) {
-      if (next.length >= settings.maxFiles) {
-        problems.push(t("assignment.editor.tooManyFiles", { max: settings.maxFiles }));
-        break;
-      }
+    for (const f of Array.from(list)) {
       if (!fileAllowed(f.name, settings)) {
         problems.push(
-          t("assignment.editor.badType", {
-            name: f.name,
-            types: (settings.extensions ?? []).join(", "),
-          })
+          t("assignment.editor.badType", { name: f.name, types: (settings.extensions ?? []).join(", ") })
         );
         continue;
       }
-      if (settings.maxBytes && f.size > settings.maxBytes) {
-        problems.push(
-          t("assignment.editor.tooLarge", { name: f.name, max: formatBytes(settings.maxBytes) })
-        );
+      if (maxSize && f.size > settings.maxBytes) {
+        problems.push(t("assignment.editor.tooLarge", { name: f.name, max: maxSize }));
         continue;
       }
-      // Same name replaces the earlier entry (Moodle keeps one file per name).
-      const dup = next.findIndex(
-        (e) => (e.kind === "new" ? e.file.name : e.file.filename) === f.name
-      );
-      const entry: EditFile = {
-        key: `n:${f.name}:${f.size}:${f.lastModified}:${Math.random()}`,
-        kind: "new",
-        file: f,
-      };
-      if (dup >= 0) next[dup] = entry;
-      else next.push(entry);
+      // Names are unique in the list (a file with the same name replaces the
+      // earlier entry: Moodle keeps one file per name), so they key the rows.
+      const entry: EditFile = { key: `n:${f.name}:${f.size}:${f.lastModified}`, kind: "new", file: f };
+      const dup = next.findIndex((e) => fileName(e) === f.name);
+      if (dup >= 0) {
+        next[dup] = entry;
+      } else if (next.length >= settings.maxFiles) {
+        problems.push(t("assignment.editor.tooManyFiles", { max: settings.maxFiles }));
+        break;
+      } else {
+        next.push(entry);
+      }
     }
     setFiles(next);
     setErrors(problems);
@@ -124,11 +161,17 @@ export function SubmissionEditor({
 
   const removeFile = (key: string) => setFiles((fs) => fs.filter((f) => f.key !== key));
 
-  const filesChanged =
-    files.some((f) => f.kind === "new") || files.length !== originalFiles.length;
-  const textChanged = text !== initialText;
-  const hasText = settings.onlinetext && text.trim().length > 0;
-  const empty = !hasText && !(settings.file && files.length > 0);
+  /** Draft itemid holding the whole file set (kept files are downloaded and re-uploaded). */
+  const uploadFileSet = async () => {
+    let itemid = 0;
+    for (let i = 0; i < files.length; i++) {
+      const entry = files[i];
+      setBusy(t("assignment.editor.uploading", { n: i + 1, total: files.length }));
+      const file = entry.kind === "new" ? entry.file : await fetchAsFile(entry.file);
+      itemid = await uploadDraftFiles([file], itemid);
+    }
+    return itemid;
+  };
 
   const save = async () => {
     setErrors([]);
@@ -136,11 +179,7 @@ export function SubmissionEditor({
       setErrors([t("assignment.editor.empty")]);
       return;
     }
-    if (overWords) {
-      setErrors([t("assignment.editor.overWords", { limit: settings.wordLimit })]);
-      return;
-    }
-    if (needsStatement && !accepted) {
+    if (statement && !accepted) {
       setErrors([t("assignment.statement.required")]);
       return;
     }
@@ -148,30 +187,16 @@ export function SubmissionEditor({
     const plugindata: Record<string, unknown> = {};
     try {
       if (settings.onlinetext) {
-        // Untouched text is sent back verbatim so rich formatting survives a files-only edit.
-        const html =
-          !textChanged && original ? original.text : textToHtml(text);
-        plugindata.onlinetext_editor = {
-          text: html,
-          format: !textChanged && original ? original.format : 1,
-          itemid: emptyDraftItemid(),
-        };
+        plugindata.onlinetext_editor = keepsOriginal
+          ? // Unchanged: store the same HTML with itemid 0, which leaves its embedded files alone.
+            { text: toPluginfilePlaceholders(original.text, submission?.id ?? 0), format: original.format, itemid: 0 }
+          : // Edited as plain text: an empty draft also clears the old embedded files.
+            { text: textToHtml(text), format: 1, itemid: emptyDraftItemid() };
       }
       if (settings.file) {
-        if (filesChanged || !hasText) {
-          if (files.length === 0) {
-            // An empty draft area clears every submitted file.
-            plugindata.files_filemanager = emptyDraftItemid();
-          } else {
-            let itemid = 0;
-            for (let i = 0; i < files.length; i++) {
-              const entry = files[i];
-              setBusy(t("assignment.editor.uploading", { n: i + 1, total: files.length }));
-              const file = entry.kind === "new" ? entry.file : await fetchAsFile(entry.file);
-              itemid = await uploadDraftFiles([file], itemid);
-            }
-            plugindata.files_filemanager = itemid;
-          }
+        if (filesChanged || !sendsText) {
+          // An empty draft area clears every submitted file.
+          plugindata.files_filemanager = files.length ? await uploadFileSet() : emptyDraftItemid();
         } else {
           // 0 = leave the submitted files untouched (file_postupdate_standard_filemanager skips empty ids).
           plugindata.files_filemanager = 0;
@@ -179,11 +204,11 @@ export function SubmissionEditor({
       }
 
       setBusy(t("assignment.editor.saving"));
-      const warnings = await moodleClient<WsWarning[]>("mod_assign_save_submission", {
+      const warnings = await moodleClient<MoodleWarning[]>("mod_assign_save_submission", {
         assignmentid: assignment.id,
         plugindata,
       });
-      const msgs = warningMessages(warnings);
+      const msgs = warningMessages(warnings, t, t("assignment.editor.saveFailed"));
       if (msgs.length) {
         setErrors(msgs);
         return;
@@ -191,63 +216,71 @@ export function SubmissionEditor({
       message.success(t("assignment.editor.saved"));
       onSaved();
     } catch (e) {
-      setErrors([(e as Error).message || t("assignment.editor.saveFailed")]);
+      setErrors([
+        e instanceof FileRefetchError
+          ? t("assignment.editor.refetchFailed", { name: e.filename })
+          : (e as Error).message || t("assignment.editor.saveFailed"),
+      ]);
     } finally {
       setBusy(null);
     }
   };
 
-  const disabled = busy !== null;
-
   return (
-    <Card>
+    <Card className="animate-fade-in-up">
       <CardHeader
-        title={submission && submission.status !== "new" ? t("assignment.editTitle") : t("assignment.addTitle")}
-        description={t("assignment.editor.hint")}
+        title={
+          <span ref={headingRef} tabIndex={-1} className="flex items-center gap-3 rounded-lg">
+            <IconTile icon={FilePen} tone="primary" size="sm" />
+            {submission && submission.status !== "new" ? t("assignment.editTitle") : t("assignment.addTitle")}
+          </span>
+        }
+        description={assignment.submissiondrafts ? t("assignment.editor.hint") : t("assignment.editor.hintNoDrafts")}
       />
       <div className="space-y-6 p-5">
         {settings.onlinetext && (
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
-              <label htmlFor="assign-onlinetext" className="text-sm font-medium text-fg">
+              <label htmlFor="assign-onlinetext" className="text-sm font-bold text-fg">
                 {t("assignment.onlineText")}
               </label>
-              <span
-                className={cn("text-xs tabular-nums", overWords ? "text-error" : "text-subtle")}
-              >
+              <span className={cn("text-xs font-semibold tabular-nums", overWords ? "text-error-text" : "text-subtle")}>
                 {settings.wordLimit > 0
                   ? t("assignment.editor.wordsOfLimit", { n: words, limit: settings.wordLimit })
                   : t("assignment.editor.words", { n: words })}
               </span>
             </div>
-            {richOriginal && !textChanged && (
-              <div className="mb-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-[13px] text-fg">
-                <TriangleAlert size={16} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warning" />
+            {original && isRichHtml(original.text) && !textChanged && (
+              <div className="mb-2 flex items-start gap-2 rounded-2xl bg-warning-soft px-4 py-2.5 text-[13px] text-warning-text">
+                <TriangleAlert size={16} strokeWidth={1.85} className="mt-0.5 shrink-0" />
                 <span>{t("assignment.editor.richNotice")}</span>
               </div>
             )}
             <textarea
+              ref={textRef}
               id="assign-onlinetext"
-              className={cn(textareaClass, overWords && "border-error focus:border-error")}
+              className={textareaClass}
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={t("assignment.editor.textPlaceholder")}
+              aria-invalid={overWords || undefined}
               disabled={disabled}
             />
+            {overWords && (
+              <p className="mt-1.5 text-xs font-medium text-error-text">
+                {t("assignment.editor.overWords", { limit: settings.wordLimit })}
+              </p>
+            )}
           </div>
         )}
 
         {settings.file && (
           <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-fg">{t("assignment.files")}</span>
-              <span className="text-xs text-subtle">
-                {t("assignment.editor.fileLimits", {
-                  n: files.length,
-                  max: settings.maxFiles,
-                })}
-                {settings.maxBytes > 0 &&
-                  ` · ${t("assignment.editor.maxSize", { size: formatBytes(settings.maxBytes) })}`}
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <span className="text-sm font-bold text-fg">{t("assignment.files")}</span>
+              <span className="text-xs tabular-nums text-subtle">
+                {t("assignment.editor.fileLimits", { n: files.length, max: settings.maxFiles })}
+                {maxSize && ` · ${t("assignment.editor.maxSize", { size: maxSize })}`}
               </span>
             </div>
 
@@ -263,19 +296,15 @@ export function SubmissionEditor({
                 if (!disabled && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
               }}
               className={cn(
-                "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors",
+                "flex flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed px-4 py-7 text-center transition-colors",
                 dragging ? "border-primary bg-primary-soft" : "border-line-strong bg-surface-2"
               )}
             >
-              <Upload size={20} strokeWidth={1.75} className="text-subtle" />
+              <IconTile icon={CloudUpload} tone="primary" />
               <p className="text-sm text-muted">{t("assignment.editor.dropHint")}</p>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={disabled || files.length >= settings.maxFiles}
-                onClick={() => inputRef.current?.click()}
-              >
-                <Paperclip size={16} strokeWidth={1.75} />
+              {/* Stays enabled at the file limit: a same-name file still replaces its entry (addFiles enforces the limit). */}
+              <Button variant="secondary" disabled={disabled} onClick={() => inputRef.current?.click()}>
+                <Paperclip size={16} strokeWidth={1.85} />
                 {t("assignment.editor.chooseFiles")}
               </Button>
               {settings.extensions && (
@@ -297,91 +326,58 @@ export function SubmissionEditor({
             </div>
 
             {files.length > 0 && (
-              <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
-                {files.map((f) => {
-                  const name = f.kind === "new" ? f.file.name : f.file.filename;
-                  const size = f.kind === "new" ? f.file.size : f.file.filesize;
-                  return (
-                    <li key={f.key} className="flex items-center gap-3 px-3 py-2.5">
-                      <FileText size={18} strokeWidth={1.75} className="shrink-0 text-subtle" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-fg" title={name}>
-                          {name}
-                        </p>
-                        <p className="text-xs text-subtle">{formatBytes(size)}</p>
-                      </div>
-                      {f.kind === "new" && (
-                        <Badge tone="primary">{t("assignment.editor.newFile")}</Badge>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={disabled}
-                        onClick={() => removeFile(f.key)}
-                        aria-label={t("assignment.editor.removeFile")}
-                        title={t("assignment.editor.removeFile")}
-                      >
-                        <X size={16} strokeWidth={1.75} />
-                      </Button>
-                    </li>
-                  );
-                })}
+              <ul className="mt-3 space-y-2">
+                {files.map((f) => (
+                  <FileRow
+                    key={f.key}
+                    name={fileName(f)}
+                    size={f.kind === "new" ? f.file.size : f.file.filesize}
+                    mimetype={f.kind === "new" ? f.file.type : f.file.mimetype}
+                  >
+                    {f.kind === "new" && <Badge tone="primary">{t("assignment.editor.newFile")}</Badge>}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={disabled}
+                      onClick={() => removeFile(f.key)}
+                      aria-label={t("common.removeFile", { name: fileName(f) })}
+                      title={t("common.removeFile", { name: fileName(f) })}
+                    >
+                      <X size={16} strokeWidth={1.85} />
+                    </Button>
+                  </FileRow>
+                ))}
               </ul>
             )}
           </div>
         )}
 
-        {needsStatement && (
-          <label className="flex items-start gap-3 rounded-lg border border-line bg-surface-2 p-3">
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 shrink-0 accent-primary"
-              checked={accepted}
-              onChange={(e) => setAccepted(e.target.checked)}
-              disabled={disabled}
-            />
-            {assignment.submissionstatement ? (
-              <RichText html={assignment.submissionstatement} className="text-[13px]" />
-            ) : (
-              <span className="text-[13px] text-fg">{t("assignment.statement.default")}</span>
-            )}
-          </label>
+        {statement && (
+          <StatementCheckbox statement={statement} checked={accepted} onChange={setAccepted} disabled={disabled} />
         )}
 
-        {errors.length > 0 && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-lg border border-error/30 bg-error-soft px-3 py-2.5 text-[13px] text-error"
-          >
-            <TriangleAlert size={16} strokeWidth={1.75} className="mt-0.5 shrink-0" />
-            <ul className="space-y-0.5">
-              {errors.map((m, i) => (
-                <li key={i}>{m}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <ErrorList errors={errors} />
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line pt-4">
           {busy && (
-            <span className="mr-auto inline-flex items-center gap-2 text-[13px] text-muted">
-              <LoaderCircle size={16} strokeWidth={1.75} className="animate-spin" />
+            <span role="status" className="mr-auto inline-flex items-center gap-2 text-[13px] text-muted">
+              <LoaderCircle size={16} strokeWidth={1.85} className="animate-spin" />
               {busy}
             </span>
           )}
           <Button variant="ghost" onClick={onCancel} disabled={disabled}>
-            <RotateCcw size={16} strokeWidth={1.75} />
+            <RotateCcw size={16} strokeWidth={1.85} />
             {t("assignment.editor.cancel")}
           </Button>
-          <Button onClick={save} disabled={disabled || overWords}>
+          <Button variant="gradient" onClick={save} disabled={disabled || overWords}>
             {disabled ? (
-              <LoaderCircle size={16} strokeWidth={1.75} className="animate-spin" />
+              <LoaderCircle size={16} strokeWidth={1.85} className="animate-spin" />
+            ) : assignment.submissiondrafts ? (
+              <Save size={16} strokeWidth={1.85} />
             ) : (
-              <Save size={16} strokeWidth={1.75} />
+              <Send size={16} strokeWidth={1.85} />
             )}
-            {assignment.submissiondrafts
-              ? t("assignment.editor.saveDraft")
-              : t("assignment.editor.saveSubmit")}
+            {assignment.submissiondrafts ? t("assignment.editor.saveDraft") : t("assignment.editor.saveSubmit")}
           </Button>
         </div>
       </div>

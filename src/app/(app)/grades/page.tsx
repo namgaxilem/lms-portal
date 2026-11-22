@@ -1,136 +1,94 @@
 "use client";
-import { useState } from "react";
-import { Table } from "antd";
-import { GraduationCap } from "lucide-react";
-import { useSession } from "@/components/providers/SessionProvider";
-import { useMoodle } from "@/lib/client-api";
+import { use, useState } from "react";
 import { useT } from "@/i18n/I18nProvider";
-import { CourseSelect } from "@/components/CourseSelect";
-import {
-  Badge,
-  Card,
-  EmptyState,
-  PageHeader,
-  QueryState,
-  type Tone,
-} from "@/components/ui";
-import { stripHtml } from "@/lib/format";
-import type { GradeItem, UserGrades } from "@/lib/moodle/types";
+import { BackLink, PageHeader, Skeleton, cn } from "@/components/ui";
+import { useEnrolledCourses, useGradesOverview } from "@/lib/moodle/hooks";
+import type { CourseGradeOverview, TimelineCourse } from "@/lib/moodle/types";
+import { CourseGradesPanel } from "@/components/grades/CourseGradesPanel";
+import { GradeCourseList } from "@/components/grades/GradeCourseList";
+import { GradeStats } from "@/components/grades/GradeStats";
+import { MilestonesCard } from "@/components/grades/MilestonesCard";
+import { overviewGradeText } from "@/components/grades/lib";
+import { useMediaQuery } from "@/lib/browser-hooks";
 
-/** Numeric percentage for a grade item, or null when ungraded. */
-function percentOf(item: GradeItem): number | null {
-  const parsed = parseFloat(item.percentageformatted);
-  if (!Number.isNaN(parsed)) return parsed;
-  if (item.graderaw != null && item.grademax > item.grademin) {
-    return ((item.graderaw - item.grademin) / (item.grademax - item.grademin)) * 100;
-  }
-  return null;
-}
-
-function percentTone(p: number | null): Tone {
-  if (p == null) return "neutral";
-  if (p >= 80) return "success";
-  if (p >= 50) return "primary";
-  return "warning";
-}
-
-export default function GradesPage() {
-  const { user } = useSession();
-  const t = useT();
-  const [courseid, setCourseid] = useState<number>();
-
-  const { data, loading, error } = useMoodle<UserGrades>(
-    "gradereport_user_get_grade_items",
-    { courseid: courseid ?? 0, userid: user.id },
-    courseid === undefined
+/** Default course: an in-progress course with a grade, else any graded, else in progress, else the first. */
+function defaultCourse(courses: TimelineCourse[], grades: Map<number, CourseGradeOverview>, now: number) {
+  const inProgress = (c: TimelineCourse) => (!c.startdate || c.startdate <= now) && (!c.enddate || c.enddate > now);
+  const graded = (c: TimelineCourse) => !!overviewGradeText(grades.get(c.id)?.grade);
+  return (
+    courses.find((c) => inProgress(c) && graded(c)) ??
+    courses.find(graded) ??
+    courses.find(inProgress) ??
+    courses[0] ??
+    null
   );
+}
 
-  const items = data?.usergrades?.[0]?.gradeitems ?? [];
+export default function GradesPage({ searchParams }: { searchParams: Promise<{ course?: string | string[] }> }) {
+  const t = useT();
+  const rawCourse = use(searchParams).course;
+  const requestedId = Number(Array.isArray(rawCourse) ? rawCourse[0] : rawCourse) || null;
+  const [now] = useState(() => Math.floor(Date.now() / 1000));
+  // The detail only mounts where it is visible, so phones don't fetch (and log)
+  // a course report the user never opened. Same unit and threshold as Tailwind's
+  // `xl` (80rem), so JS and CSS agree whatever the browser's root font size.
+  const isDesktop = useMediaQuery("(min-width: 80rem)");
+
+  const { courses, loading, error } = useEnrolledCourses("allincludinghidden");
+  const overview = useGradesOverview();
+
+  const requested = courses.find((c) => c.id === requestedId) ?? null;
+  const selected = requested ?? (overview.loading ? null : defaultCourse(courses, overview.byCourse, now));
+  // Below xl: list first, the detail replaces it once a course is chosen (?course=);
+  // an unknown course id falls back to the list.
+  const narrowDetail = requestedId !== null && (loading || requested !== null);
+  const visible = selected && (isDesktop || narrowDetail) ? selected : null;
+  const graded = courses.filter((c) => overviewGradeText(overview.byCourse.get(c.id)?.grade)).length;
 
   return (
     <div>
-      <PageHeader
-        title={t("nav.grades")}
-        actions={<CourseSelect value={courseid} onChange={setCourseid} />}
+      <PageHeader title={t("nav.grades")} description={t("grades.subtitle")} />
+
+      <GradeStats
+        graded={graded}
+        total={courses.length}
+        coursesLoading={loading}
+        overviewLoading={overview.loading}
+        overviewFailed={!!overview.error || !!error}
+        selected={visible}
       />
 
-      {courseid === undefined ? (
-        <Card>
-          <EmptyState icon={GraduationCap} title={t("grades.selectToView")} />
-        </Card>
-      ) : (
-        <QueryState loading={loading} error={error}>
-          {items.length === 0 ? (
-            <Card>
-              <EmptyState icon={GraduationCap} title={t("reports.noGrades")} />
-            </Card>
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)]">
+        <div className={cn(narrowDetail && "hidden xl:block")}>
+          <GradeCourseList
+            courses={courses}
+            grades={overview.byCourse}
+            selectedId={visible?.id ?? null}
+            loading={loading}
+            error={error}
+            overviewLoading={overview.loading}
+            overviewError={overview.error}
+          />
+        </div>
+
+        <div className={cn("space-y-3", !narrowDetail && "hidden xl:block")}>
+          <BackLink href="/grades" className="xl:hidden">
+            {t("grades.allCourses")}
+          </BackLink>
+          {visible ? (
+            <CourseGradesPanel
+              key={visible.id}
+              course={visible}
+              overview={overview.byCourse.get(visible.id)}
+              summaryChips={false}
+            />
           ) : (
-            <Card className="overflow-hidden animate-fade-in-up">
-              <Table<GradeItem>
-                rowKey="id"
-                size="middle"
-                bordered={false}
-                pagination={false}
-                dataSource={items}
-                scroll={{ x: true }}
-                rowClassName={(r) =>
-                  r.itemtype === "course"
-                    ? "font-semibold [&>td]:bg-surface-2"
-                    : ""
-                }
-                columns={[
-                  {
-                    title: t("grades.item"),
-                    dataIndex: "itemname",
-                    render: (v: string | null, r) => (
-                      <span className="text-fg">
-                        {v ||
-                          (r.itemtype === "course" ? t("grades.courseTotal") : "—")}
-                      </span>
-                    ),
-                  },
-                  {
-                    title: t("grades.grade"),
-                    dataIndex: "gradeformatted",
-                    render: (v: string) => (
-                      <span className="tabular-nums text-fg">{v || "—"}</span>
-                    ),
-                  },
-                  {
-                    title: t("grades.range"),
-                    render: (_, r) => (
-                      <span className="tabular-nums text-muted">
-                        {r.grademin}–{r.grademax}
-                      </span>
-                    ),
-                  },
-                  {
-                    title: t("grades.percentage"),
-                    render: (_, r) => {
-                      const p = percentOf(r);
-                      return (
-                        <Badge tone={percentTone(p)} className="tabular-nums">
-                          {p == null ? "—" : r.percentageformatted || `${p.toFixed(1)} %`}
-                        </Badge>
-                      );
-                    },
-                  },
-                  {
-                    title: t("grades.feedback"),
-                    dataIndex: "feedback",
-                    render: (v: string) => {
-                      const text = v ? stripHtml(v) : "";
-                      return (
-                        <span className="text-[13px] text-muted">{text || "—"}</span>
-                      );
-                    },
-                  },
-                ]}
-              />
-            </Card>
+            (loading || overview.loading) && <Skeleton className="h-48 rounded-hero" />
           )}
-        </QueryState>
-      )}
+        </div>
+      </div>
+
+      <MilestonesCard className="mt-8" />
     </div>
   );
 }

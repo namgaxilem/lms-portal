@@ -1,74 +1,107 @@
 "use client";
 import Link from "next/link";
-import { ChevronRight, ClipboardCheck } from "lucide-react";
-import { useMoodle } from "@/lib/client-api";
+import { CalendarClock, ChevronRight } from "lucide-react";
 import { useLocale, useT } from "@/i18n/I18nProvider";
-import { Badge, Skeleton } from "@/components/ui";
-import type { Assignment, SubmissionStatus } from "@/lib/moodle/types";
-import { formatDateTime } from "./lib";
+import { Badge, IconTile, ProgressRing, Skeleton, cn } from "@/components/ui";
+import { formatDateTime, formatNumber } from "@/lib/format";
+import { moduleMeta } from "@/lib/module-meta";
+import type { Assignment } from "@/lib/moodle/types";
+import { gradeTypeOf } from "./lib";
+import type { GradingSummary } from "./useGradingSummaries";
 
-/** One assignment in the grading list, with live submission counts. */
+const assignMeta = moduleMeta("assign");
+
+/** One assignment in the grading list: dates, grade type and live submission counts. */
 export function AssignmentRow({
   assignment: a,
-  now,
   courseid,
+  summary,
+  now,
 }: {
   assignment: Assignment;
-  now: number;
   courseid: number;
+  /** undefined while loading, null when unavailable. */
+  summary: GradingSummary | null | undefined;
+  now: number;
 }) {
   const t = useT();
   const { locale } = useLocale();
-  const { data, loading } = useMoodle<SubmissionStatus>("mod_assign_get_submission_status", {
-    assignid: a.id,
-  });
-  const summary = data?.gradingsummary;
   const overdue = a.duedate > 0 && a.duedate < now;
+  const toGrade = summary?.submissionsneedgradingcount ?? 0;
+  const gradeByLate = !!a.gradingduedate && a.gradingduedate < now && toGrade > 0;
+  const type = gradeTypeOf(a);
 
   return (
     <Link
       href={`/teacher/grading/${a.cmid}?course=${courseid}`}
-      className="group flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-surface-2 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+      className="group flex flex-col gap-3 rounded-control p-3 transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center sm:gap-4"
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-2 text-muted">
-          <ClipboardCheck size={18} strokeWidth={1.75} />
-        </div>
+      <div className="flex min-w-0 flex-1 items-center gap-3.5">
+        <IconTile icon={assignMeta.icon} tone={assignMeta.tone} />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-fg">{a.name}</p>
-          <p className="mt-0.5 text-xs tabular-nums text-subtle">
-            {t("grading.due")}: {a.duedate ? formatDateTime(a.duedate, locale) : "—"}
-            {a.grade > 0 && ` · ${t("grading.max")} ${a.grade}`}
+          <p className="truncate font-bold text-fg">{a.name}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs tabular-nums text-subtle">
+            <span className={cn("inline-flex items-center gap-1", overdue && "text-error-text")}>
+              <CalendarClock size={13} strokeWidth={1.85} aria-hidden />
+              {a.duedate ? `${t("grading.due")}: ${formatDateTime(a.duedate, locale)}` : t("grading.noDueDate")}
+              {overdue && ` · ${t("grading.overdue")}`}
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              {type === "points"
+                ? `${t("grading.max")} ${formatNumber(a.grade, locale)}`
+                : t(type === "scale" ? "grading.method.scale" : "grading.method.none")}
+            </span>
+            {!!a.gradingduedate && (
+              <>
+                <span aria-hidden>·</span>
+                <span className={cn(gradeByLate && "font-semibold text-error-text")}>
+                  {t("grading.gradeBy", { date: formatDateTime(a.gradingduedate, locale) })}
+                </span>
+              </>
+            )}
           </p>
         </div>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
-        {loading ? (
-          <Skeleton className="h-6 w-40" />
+
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 pl-[58px] sm:flex-nowrap sm:pl-0">
+        {summary === undefined ? (
+          <Skeleton className="h-10 w-48" />
         ) : summary ? (
-          <>
-            <Badge tone={summary.submissionsneedgradingcount > 0 ? "warning" : "neutral"}>
-              {t("grading.needsGradingCount", { n: summary.submissionsneedgradingcount })}
-            </Badge>
-            <span className="text-xs tabular-nums text-subtle">
-              {t("grading.submittedOf", {
-                n: summary.submissionssubmittedcount,
-                total: summary.participantcount,
-              })}
-            </span>
-          </>
+          <SummaryBits summary={summary} />
         ) : null}
-        {overdue && (
-          <Badge tone="danger" dot>
-            {t("grading.overdue")}
-          </Badge>
-        )}
         <ChevronRight
-          size={16}
-          strokeWidth={1.75}
-          className="hidden text-subtle transition-transform group-hover:translate-x-0.5 sm:block"
+          size={18}
+          strokeWidth={1.85}
+          aria-hidden
+          className="ml-auto text-subtle transition-transform group-hover:translate-x-0.5 sm:ml-0"
         />
       </div>
     </Link>
+  );
+}
+
+function SummaryBits({ summary: s }: { summary: GradingSummary }) {
+  const t = useT();
+  if (!s.submissionsenabled) return <Badge tone="neutral">{t("grading.offline")}</Badge>;
+
+  const submittedLabel = t("grading.submittedOf", { n: s.submissionssubmittedcount, total: s.participantcount });
+  const pct = s.participantcount > 0 ? Math.round((s.submissionssubmittedcount / s.participantcount) * 100) : 0;
+  const toGrade = s.submissionsneedgradingcount;
+
+  return (
+    <>
+      <span className="flex items-center gap-2">
+        <ProgressRing value={pct} size={36} stroke={4} tone="success" label={submittedLabel} />
+        <span className="text-xs font-semibold tabular-nums text-muted">{submittedLabel}</span>
+      </span>
+      {toGrade > 0 ? (
+        <Badge tone="warning" dot>
+          {t("grading.needsGradingCount", { n: toGrade })}
+        </Badge>
+      ) : s.submissionssubmittedcount > 0 ? (
+        <Badge tone="success">{t("grading.allGraded")}</Badge>
+      ) : null}
+    </>
   );
 }

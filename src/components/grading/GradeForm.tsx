@@ -1,24 +1,52 @@
 "use client";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { App, Select } from "antd";
-import { CircleAlert, LoaderCircle, Save, SkipForward, TriangleAlert } from "lucide-react";
+import { CircleAlert, LoaderCircle, Save, SkipForward } from "lucide-react";
 import { moodleClient } from "@/lib/client-api";
-import { useT } from "@/i18n/I18nProvider";
-import { Badge, Button, Card, CardHeader, Label, cn } from "@/components/ui";
-import type { Assignment, GradingMeta, SubmissionStatus } from "@/lib/moodle/types";
-import { GuideForm, guideScore, type GuideValue } from "./GuideForm";
-import { RubricGrid, rubricTotals, type RubricValue } from "./RubricGrid";
-import { feedbackComments } from "./SubmissionView";
+import { useLocale, useT } from "@/i18n/I18nProvider";
+import { Badge, Button, Card, CardHeader, Label, cn, inputClass } from "@/components/ui";
 import {
-  WORKFLOW_STATES,
-  fieldClass,
-  formatNumber,
+  annotatedPdfs,
+  feedbackComments,
+  feedbackFileArea,
   htmlToText,
-  parseGrade,
+  isRichHtml,
+  rawGrade,
   textToHtml,
+} from "@/components/assignment/lib";
+import type { Assignment, SubmissionStatus } from "@/lib/moodle/types";
+import { formatNumber } from "@/lib/format";
+import { FeedbackField } from "./FeedbackField";
+import { FeedbackFiles, uploadFeedbackFiles, type FeedbackFilesDraft } from "./FeedbackFiles";
+import { FileList } from "@/components/FileList";
+import { FrequentComments } from "./FrequentComments";
+import { GradingNotice, serviceNoticeIndex } from "./GradingNotice";
+import { GuideForm } from "./GuideForm";
+import { RubricGrid } from "./RubricGrid";
+import {
+  buildSavePayload,
+  feedbackPluginEnabled,
+  gradeNotices,
+  gradeTypeOf,
+  guideScore,
+  inputNumber,
+  isAdvancedBlocked,
+  restorePluginfileUrls,
+  rubricTotals,
+  workflowOptions,
+  workflowStateOf,
+  type GuideValue,
+  type RubricValue,
 } from "./lib";
+import type { GradingFillingsResult, GradingSetup, SaveOutcome } from "./types";
 
 type CommentTarget = "feedback" | number;
+
+export interface SavedResult {
+  next: boolean;
+  /** Grade sent as a plain value (points / scale), null for advanced grading or no grade. */
+  grade: number | null;
+}
 
 /**
  * Grade + feedback for one participant. Mount with `key={userid}` so the
@@ -26,64 +54,102 @@ type CommentTarget = "feedback" | number;
  */
 export function GradeForm({
   assignment,
-  meta,
+  setup,
+  fillings,
+  currentGrade,
   userid,
   status,
   team,
   hasNext,
+  methodBlocked,
+  gradeLocked,
+  feedbackHidden,
+  canRelease,
   onDirty,
   onSaved,
 }: {
   assignment: Assignment;
-  meta: GradingMeta;
+  setup: GradingSetup;
+  /** Saved rubric / guide fillings (advanced grading only). */
+  fillings: GradingFillingsResult | null;
+  /** Raw grade of the latest attempt (mod_assign_get_grades), if any. */
+  currentGrade: string | undefined;
   userid: number;
   status: SubmissionStatus;
   team: boolean;
   hasNext: boolean;
+  /** Moodle ignored a plain grade earlier: the assignment probably uses advanced grading. */
+  methodBlocked: boolean;
+  /** Moodle kept this student's grade because it is locked / overridden in the gradebook. */
+  gradeLocked: boolean;
+  /** Marking workflow not released: Moodle hides the saved feedback from the web service. */
+  feedbackHidden: boolean;
+  /** May set "in review", "ready for release" and "released" (see workflowOptions). */
+  canRelease: boolean;
   onDirty: (dirty: boolean) => void;
-  onSaved: (next: boolean) => Promise<void> | void;
+  /** Refreshes the workspace and reports whether Moodle applied the plain grade. */
+  onSaved: (result: SavedResult) => Promise<SaveOutcome>;
 }) {
   const t = useT();
-  const { message } = App.useApp();
-  const current = parseGrade(status.feedback?.grade?.grade);
-  const maxgrade = meta.maxgrade ?? (assignment.grade > 0 ? assignment.grade : null);
-  const isScale = assignment.grade < 0;
-  const rubric = meta.method === "rubric" ? meta.rubric : undefined;
-  const guide = meta.method === "guide" ? meta.guide : undefined;
-  // Rubric / guide without its definition (no MOODLE_GRADING_TOKEN) cannot be graded here.
-  const advancedBlocked = meta.method !== "simple" && !rubric && !guide;
-  const scaleBlocked = meta.method === "simple" && isScale && !meta.scale?.length;
+  const { locale } = useLocale();
+  const { message, modal } = App.useApp();
+  const ids = useId();
+  const formRef = useRef<HTMLDivElement>(null);
 
-  const [points, setPoints] = useState(() =>
-    current !== null && !isScale ? formatNumber(current) : ""
-  );
+  const gradeType = gradeTypeOf(assignment);
+  const current = rawGrade(currentGrade);
+  const maxgrade = setup.maxgrade;
+  const rubric = setup.method === "rubric" ? setup.rubric : undefined;
+  const guide = setup.method === "guide" ? setup.guide : undefined;
+  const advancedBlocked = isAdvancedBlocked(setup, fillings, methodBlocked);
+  const plainGrading = !rubric && !guide;
+  const scaleBlocked = plainGrading && gradeType === "scale" && !setup.scale?.length;
+
+  const commentsOn = feedbackPluginEnabled(assignment, "comments");
+  const filesOn = feedbackPluginEnabled(assignment, "file");
+  const replacesHidden = feedbackHidden && (commentsOn || filesOn);
+  const originalHtml = feedbackComments(status.feedback?.plugins) ?? "";
+  const richFeedback = isRichHtml(originalHtml);
+  const currentFiles = feedbackFileArea(status.feedback?.plugins);
+  const annotated = annotatedPdfs(status.feedback?.plugins);
+
+  const notices = gradeNotices({
+    setup,
+    methodBlocked,
+    advancedBlocked,
+    scaleBlocked,
+    gradeLocked,
+    feedbackHidden: replacesHidden,
+  });
+  const issueAt = serviceNoticeIndex(notices);
+  const hiddenNoticeId = notices.includes("feedbackHidden") ? `${ids}-hidden` : undefined;
+
+  const [points, setPoints] = useState(() => (current !== null && gradeType === "points" ? inputNumber(current) : ""));
   const [scaleIdx, setScaleIdx] = useState<number>(() =>
-    current !== null && isScale ? Math.round(current) : -1
+    current !== null && gradeType === "scale" ? Math.round(current) : -1
   );
   const [rubricValue, setRubricValue] = useState<RubricValue>(() =>
-    Object.fromEntries(
-      (meta.fillings ?? []).map((f) => [f.criterionid, { levelid: f.levelid, remark: f.remark ?? "" }])
-    )
+    Object.fromEntries((fillings?.fillings ?? []).map((f) => [f.criterionid, { levelid: f.levelid, remark: f.remark ?? "" }]))
   );
   const [guideValue, setGuideValue] = useState<GuideValue>(() =>
     Object.fromEntries(
-      (meta.fillings ?? []).map((f) => [
+      (fillings?.fillings ?? []).map((f) => [
         f.criterionid,
-        { score: f.score !== undefined ? formatNumber(f.score) : "", remark: f.remark ?? "" },
+        { score: f.score !== undefined ? inputNumber(f.score) : "", remark: f.remark ?? "" },
       ])
     )
   );
-  const [feedback, setFeedback] = useState(() =>
-    htmlToText(feedbackComments(status.feedback?.plugins))
-  );
-  const [workflow, setWorkflow] = useState(() => {
-    const s = status.lastattempt?.gradingstatus ?? "";
-    return (WORKFLOW_STATES as readonly string[]).includes(s) ? s : "notmarked";
-  });
+  const [editingFeedback, setEditingFeedback] = useState(!richFeedback);
+  const [feedback, setFeedback] = useState(() => (richFeedback ? "" : htmlToText(originalHtml)));
+  const [feedbackTouched, setFeedbackTouched] = useState(false);
+  const [filesDraft, setFilesDraft] = useState<FeedbackFilesDraft | null>(null);
+  const savedWorkflow = workflowStateOf(status.lastattempt?.gradingstatus);
+  const [workflow, setWorkflow] = useState(savedWorkflow);
   const [commentTarget, setCommentTarget] = useState<CommentTarget>("feedback");
   const [saving, setSaving] = useState<false | "save" | "next">(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [pointsInvalid, setPointsInvalid] = useState(false);
 
   // Wrap setters so any edit marks the form dirty.
   const edit =
@@ -93,103 +159,89 @@ export function GradeForm({
       setError(null);
       onDirty(true);
     };
+  const editFeedback = (text: string) => {
+    setFeedbackTouched(true);
+    edit(setFeedback)(text);
+  };
+  const startEditingFeedback = () => {
+    setFeedback(htmlToText(originalHtml));
+    setEditingFeedback(true);
+  };
 
   const appendComment = (text: string) => {
     if (commentTarget === "feedback") {
-      edit(setFeedback)(feedback ? `${feedback}\n${text}` : text);
-    } else {
-      const cur = guideValue[commentTarget] ?? { score: "", remark: "" };
-      edit(setGuideValue)({
-        ...guideValue,
-        [commentTarget]: { ...cur, remark: cur.remark ? `${cur.remark}\n${text}` : text },
-      });
-    }
-  };
-
-  /** Validates and builds the mod_assign_save_grade args, or returns an error key. */
-  const buildPayload = (): { args?: Record<string, unknown>; error?: string } => {
-    let grade = -1;
-    let advancedgradingdata: Record<string, unknown> | undefined;
-
-    if (rubric) {
-      if (rubric.criteria.some((c) => !rubricValue[c.id]?.levelid)) return { error: "grading.errors.rubricIncomplete" };
-      grade = 0;
-      advancedgradingdata = {
-        rubric: {
-          criteria: rubric.criteria.map((c) => ({
-            criterionid: c.id,
-            fillings: [
-              {
-                criterionid: c.id,
-                levelid: rubricValue[c.id].levelid,
-                remark: rubricValue[c.id].remark ?? "",
-                remarkformat: 1,
-              },
-            ],
-          })),
-        },
-      };
-    } else if (guide) {
-      if (guide.criteria.some((c) => guideScore(c, guideValue) === null)) return { error: "grading.errors.guideInvalid" };
-      grade = 0;
-      advancedgradingdata = {
-        guide: {
-          criteria: guide.criteria.map((c) => ({
-            criterionid: c.id,
-            fillings: [
-              {
-                criterionid: c.id,
-                score: guideScore(c, guideValue),
-                remark: guideValue[c.id]?.remark ?? "",
-                remarkformat: 1,
-              },
-            ],
-          })),
-        },
-      };
-    } else if (isScale) {
-      // Without scale items keep whatever grade is stored; only feedback changes.
-      grade = scaleBlocked ? (current ?? -1) : scaleIdx;
-    } else if (points.trim() !== "") {
-      const n = Number(points);
-      if (!Number.isFinite(n) || n < 0 || (maxgrade !== null && n > maxgrade)) {
-        return { error: "grading.errors.pointsRange" };
-      }
-      grade = n;
-    }
-
-    return {
-      args: {
-        assignmentid: assignment.id,
-        userid,
-        grade,
-        attemptnumber: -1,
-        addattempt: false,
-        workflowstate: assignment.markingworkflow ? workflow : "",
-        applytoall: team,
-        plugindata: {
-          assignfeedbackcomments_editor: { text: textToHtml(feedback), format: 1 },
-        },
-        ...(advancedgradingdata && { advancedgradingdata }),
-      },
-    };
-  };
-
-  const save = async (next: boolean) => {
-    const { args, error: invalid } = buildPayload();
-    if (!args) {
-      setShowErrors(true);
-      setError(t(invalid!, { max: maxgrade ?? "" }));
+      editFeedback(feedback ? `${feedback}\n${text}` : text);
       return;
     }
+    const target = commentTarget;
+    edit(setGuideValue)((prev: GuideValue) => {
+      const cur = prev[target] ?? { score: "", remark: "" };
+      return { ...prev, [target]: { ...cur, remark: cur.remark ? `${cur.remark}\n${text}` : text } };
+    });
+  };
+
+  /** Moves focus to the first criterion / field flagged after a failed save. */
+  const focusFirstInvalid = () =>
+    requestAnimationFrame(() =>
+      formRef.current?.querySelector<HTMLElement>('[data-invalid] input, input[aria-invalid="true"]')?.focus()
+    );
+
+  /**
+   * Marking workflow hides earlier feedback from the web service, so this form
+   * can't show it and saving replaces it (even with an empty box): confirm first.
+   */
+  const confirmReplaceHidden = () =>
+    modal.confirm({
+      title: t("grading.replaceConfirm.title"),
+      content: t("grading.replaceConfirm.body"),
+      okText: t("grading.replaceConfirm.ok"),
+      cancelText: t("grading.keepEditing"),
+      okButtonProps: { danger: true },
+    });
+
+  const save = async (next: boolean) => {
+    const payload = buildSavePayload({
+      assignment,
+      userid,
+      team,
+      rubric,
+      guide,
+      rubricValue,
+      guideValue,
+      scaleBlocked,
+      scaleIdx,
+      points,
+      maxgrade,
+      current,
+      workflow,
+      // Untouched feedback goes back as it was (files restored), so Moodle sees no change.
+      feedbackHtml: commentsOn ? (feedbackTouched ? textToHtml(feedback) : restorePluginfileUrls(originalHtml)) : null,
+    });
+    if ("error" in payload) {
+      setShowErrors(true);
+      setPointsInvalid(payload.error === "grading.errors.pointsRange");
+      setError(t(payload.error, { max: maxgrade !== null ? formatNumber(maxgrade, locale) : "" }));
+      focusFirstInvalid();
+      return;
+    }
+    if (replacesHidden && (commentsOn || filesDraft) && !(await confirmReplaceHidden())) return;
+
     setSaving(next ? "next" : "save");
     setError(null);
     try {
-      await moodleClient("mod_assign_save_grade", args);
+      if (filesOn && filesDraft) {
+        const itemid = await uploadFeedbackFiles(filesDraft).catch(() => {
+          throw new Error(t("grading.filesUploadFailed"));
+        });
+        (payload.args.plugindata as Record<string, unknown>).files_filemanager = itemid;
+      }
+      await moodleClient("mod_assign_save_grade", payload.args);
       onDirty(false);
       setShowErrors(false);
-      message.success(t("grading.saved"));
-      await onSaved(next);
+      // When Moodle kept another grade, a notice ("gradeLocked" / "notApplied") explains it instead of a toast.
+      const outcome = await onSaved({ next, grade: payload.grade });
+      setFilesDraft(null);
+      if (outcome === "applied") message.success(t("grading.saved"));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -197,6 +249,7 @@ export function GradeForm({
     }
   };
 
+  const busy = !!saving;
   const rubricSum = rubric ? rubricTotals(rubric.criteria, rubricValue) : null;
   const guideSum = guide
     ? {
@@ -204,14 +257,10 @@ export function GradeForm({
         max: guide.criteria.reduce((s, c) => s + c.maxscore, 0),
       }
     : null;
-  const estimate = (() => {
-    if (!maxgrade) return null;
-    if (rubricSum && rubricSum.max > rubricSum.min) {
-      return ((rubricSum.total - rubricSum.min) / (rubricSum.max - rubricSum.min)) * maxgrade;
-    }
-    if (guideSum && guideSum.max > 0) return (guideSum.total / guideSum.max) * maxgrade;
-    return null;
-  })();
+  const advancedSum = rubricSum ?? guideSum;
+  // Moodle's default (rubric "lock zero points" and every guide): total / max score × max grade.
+  const estimate = maxgrade && advancedSum && advancedSum.max > 0 ? (advancedSum.total / advancedSum.max) * maxgrade : null;
+  const advanced = rubric ?? guide;
 
   return (
     <Card>
@@ -227,192 +276,189 @@ export function GradeForm({
           )
         }
       />
-      <div className="space-y-5 p-5">
-        {(advancedBlocked || scaleBlocked || !meta.complete) && (
-          <div className="flex gap-3 rounded-lg border border-warning/40 bg-warning-soft p-3 text-[13px] text-fg">
-            <TriangleAlert size={18} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warning" />
-            <p>
-              {advancedBlocked
-                ? t(meta.notDefined ? "grading.advancedNotDefined" : "grading.incompleteAdvanced")
-                : scaleBlocked
-                  ? t("grading.incompleteScale")
-                  : t("grading.incompleteGeneric")}
-            </p>
-          </div>
-        )}
+      <div ref={formRef} className="space-y-5 p-5">
+        {notices.map((kind, i) => (
+          <GradingNotice
+            key={kind}
+            id={kind === "feedbackHidden" ? hiddenNoticeId : undefined}
+            kind={kind}
+            methodLabel={t(`grading.method.${setup.method === "guide" ? "guide" : "rubric"}`)}
+            issue={i === issueAt ? (fillings?.issue ?? setup.issue) : undefined}
+          />
+        ))}
 
-        {rubric && (
-          <section className="space-y-3">
+        {advanced && !advancedBlocked && (
+          <section className="space-y-3" aria-labelledby={`${ids}-adv`}>
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-semibold text-fg">{rubric.name || t("grading.method.rubric")}</h3>
-              {rubricSum && (
-                <span className="text-xs tabular-nums text-muted">
+              <h3 id={`${ids}-adv`} className="text-sm font-bold text-fg">
+                {advanced.name || t(rubric ? "grading.method.rubric" : "grading.method.guide")}
+              </h3>
+              {advancedSum && (
+                <span className="text-xs font-semibold tabular-nums text-muted">
                   {t("grading.rubricTotal", {
-                    total: formatNumber(rubricSum.total),
-                    max: formatNumber(rubricSum.max),
+                    total: formatNumber(advancedSum.total, locale),
+                    max: formatNumber(advancedSum.max, locale),
                   })}
                 </span>
               )}
             </div>
-            <RubricGrid
-              criteria={rubric.criteria}
-              value={rubricValue}
-              onChange={edit(setRubricValue)}
-              disabled={!!saving}
-              showErrors={showErrors}
-            />
+            {rubric && (
+              <RubricGrid
+                criteria={rubric.criteria}
+                value={rubricValue}
+                onChange={edit(setRubricValue)}
+                disabled={busy}
+                showErrors={showErrors}
+              />
+            )}
+            {guide && (
+              <GuideForm
+                criteria={guide.criteria}
+                value={guideValue}
+                onChange={edit(setGuideValue)}
+                onFocusRemark={setCommentTarget}
+                disabled={busy}
+                showErrors={showErrors}
+              />
+            )}
+            {estimate !== null && maxgrade !== null && (
+              <p className="rounded-control bg-surface-2 px-3 py-2 text-[13px] font-semibold tabular-nums text-muted">
+                {t("grading.estimateApprox", { grade: formatNumber(estimate, locale), max: formatNumber(maxgrade, locale) })}
+              </p>
+            )}
           </section>
         )}
 
-        {guide && (
-          <section className="space-y-3">
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-semibold text-fg">{guide.name || t("grading.method.guide")}</h3>
-              {guideSum && (
-                <span className="text-xs tabular-nums text-muted">
-                  {t("grading.rubricTotal", {
-                    total: formatNumber(guideSum.total),
-                    max: formatNumber(guideSum.max),
-                  })}
-                </span>
-              )}
-            </div>
-            <GuideForm
-              criteria={guide.criteria}
-              value={guideValue}
-              onChange={edit(setGuideValue)}
-              onFocusRemark={setCommentTarget}
-              disabled={!!saving}
-              showErrors={showErrors}
-            />
-          </section>
-        )}
-
-        {estimate !== null && maxgrade !== null && (
-          <p className="rounded-lg bg-surface-2 px-3 py-2 text-[13px] text-muted">
-            {t("grading.estimatedGrade", {
-              grade: formatNumber(estimate),
-              max: formatNumber(maxgrade),
-            })}
-          </p>
-        )}
-
-        {meta.method === "simple" && !isScale && (
+        {plainGrading && !advancedBlocked && gradeType === "points" && (
           <div>
-            <Label htmlFor="grade-points">
-              {t("grading.gradeOutOf", { max: maxgrade !== null ? formatNumber(maxgrade) : "—" })}
+            <Label htmlFor={`${ids}-points`}>
+              {t("grading.gradeOutOf", { max: maxgrade !== null ? formatNumber(maxgrade, locale) : "—" })}
             </Label>
-            <input
-              id="grade-points"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              max={maxgrade ?? undefined}
-              step={0.01}
-              value={points}
-              onChange={(e) => edit(setPoints)(e.target.value)}
-              disabled={!!saving}
-              className={cn(fieldClass, "h-10 w-40 text-sm tabular-nums")}
-            />
+            <div className="w-40">
+              <input
+                id={`${ids}-points`}
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={maxgrade ?? undefined}
+                step={0.01}
+                value={points}
+                onChange={(e) => {
+                  setPointsInvalid(false);
+                  edit(setPoints)(e.target.value);
+                }}
+                disabled={busy}
+                aria-invalid={pointsInvalid || undefined}
+                className={cn(inputClass, "font-bold tabular-nums")}
+              />
+            </div>
           </div>
         )}
 
-        {meta.method === "simple" && isScale && !scaleBlocked && (
+        {plainGrading && !advancedBlocked && gradeType === "scale" && !scaleBlocked && (
           <div>
-            <Label>{t("grading.scaleLabel")}</Label>
+            <Label htmlFor={`${ids}-scale`}>{t("grading.scaleLabel")}</Label>
             <Select<number>
+              id={`${ids}-scale`}
               className="w-full"
               value={scaleIdx}
               onChange={edit(setScaleIdx)}
-              disabled={!!saving}
+              disabled={busy}
               options={[
                 { value: -1, label: t("grading.noGrade") },
-                ...(meta.scale ?? []).map((label, i) => ({ value: i + 1, label })),
+                ...(setup.scale ?? []).map((label, i) => ({ value: i + 1, label })),
               ]}
             />
           </div>
         )}
 
-        {assignment.markingworkflow ? (
+        {plainGrading && gradeType === "none" && (
+          <p className="rounded-control bg-surface-2 px-3 py-2 text-[13px] text-muted">{t("grading.feedbackOnly")}</p>
+        )}
+
+        {!!assignment.markingworkflow && (
           <div>
-            <Label>{t("grading.workflowState")}</Label>
+            <Label htmlFor={`${ids}-workflow`}>{t("grading.workflowState")}</Label>
             <Select<string>
+              id={`${ids}-workflow`}
               className="w-full"
               value={workflow}
               onChange={edit(setWorkflow)}
-              disabled={!!saving}
-              options={WORKFLOW_STATES.map((s) => ({ value: s, label: t(`grading.workflow.${s}`) }))}
+              disabled={busy || advancedBlocked}
+              options={workflowOptions(savedWorkflow, canRelease).map((s) => ({
+                value: s,
+                label: t(`grading.workflow.${s}`),
+              }))}
             />
           </div>
-        ) : null}
+        )}
 
-        <div>
-          <Label htmlFor="grade-feedback">{t("grading.feedback")}</Label>
-          <textarea
-            id="grade-feedback"
-            rows={5}
-            value={feedback}
-            onChange={(e) => edit(setFeedback)(e.target.value)}
-            onFocus={() => setCommentTarget("feedback")}
-            disabled={!!saving}
-            placeholder={t("grading.feedbackPlaceholder")}
-            className={cn(fieldClass, "w-full resize-y py-2 text-sm")}
-          />
-          {guide && guide.comments.length > 0 && (
-            <div className="mt-2">
-              <p className="mb-1.5 text-xs text-subtle">
-                {t("grading.frequentComments")} ·{" "}
-                {commentTarget === "feedback"
-                  ? t("grading.insertIntoFeedback")
-                  : t("grading.insertIntoRemark", {
-                      name: guide.criteria.find((c) => c.id === commentTarget)?.shortname ?? "",
-                    })}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {guide.comments.map((c, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    // Keep focus (and so the insert target) where it was.
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => appendComment(c)}
-                    className="max-w-full truncate rounded-md border border-line bg-surface-2 px-2 py-1 text-xs text-muted transition-colors hover:border-line-strong hover:text-fg"
-                    title={c}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        {commentsOn && (
+          <div className="space-y-2">
+            <FeedbackField
+              id={`${ids}-feedback`}
+              originalHtml={originalHtml}
+              rich={richFeedback}
+              editing={editingFeedback}
+              onStartEditing={startEditingFeedback}
+              value={feedback}
+              onChange={editFeedback}
+              onFocus={() => setCommentTarget("feedback")}
+              disabled={busy || advancedBlocked}
+              describedBy={hiddenNoticeId}
+            />
+            {guide && guide.comments.length > 0 && !advancedBlocked && (
+              <FrequentComments
+                comments={guide.comments}
+                target={
+                  commentTarget === "feedback"
+                    ? null
+                    : (guide.criteria.find((c) => c.id === commentTarget)?.shortname ?? null)
+                }
+                disabled={busy || (commentTarget === "feedback" && !editingFeedback)}
+                onPick={appendComment}
+              />
+            )}
+          </div>
+        )}
+
+        {filesOn && !advancedBlocked && (
+          <FeedbackFiles current={currentFiles} draft={filesDraft} onChange={edit(setFilesDraft)} disabled={busy} />
+        )}
+
+        {annotated.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[13px] font-medium text-fg">{t("grading.annotatedPdf")}</p>
+            <FileList files={annotated} />
+          </div>
+        )}
 
         {error && (
-          <div role="alert" className="flex gap-2 rounded-lg bg-error-soft p-3 text-[13px] text-error">
-            <CircleAlert size={16} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+          <div role="alert" className="flex gap-2 rounded-control bg-error-soft p-3 text-[13px] text-error-text">
+            <CircleAlert size={16} strokeWidth={1.85} className="mt-0.5 shrink-0" aria-hidden />
             <p>{error}</p>
           </div>
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => save(false)} disabled={!!saving || advancedBlocked}>
+          <Button
+            variant={hasNext ? "secondary" : "gradient"}
+            onClick={() => save(false)}
+            disabled={busy || advancedBlocked}
+          >
             {saving === "save" ? (
-              <LoaderCircle size={16} strokeWidth={1.75} className="animate-spin" />
+              <LoaderCircle size={16} strokeWidth={1.85} className="animate-spin" />
             ) : (
-              <Save size={16} strokeWidth={1.75} />
+              <Save size={16} strokeWidth={1.85} />
             )}
             {t("grading.save")}
           </Button>
           {hasNext && (
-            <Button
-              variant="secondary"
-              onClick={() => save(true)}
-              disabled={!!saving || advancedBlocked}
-            >
+            <Button variant="gradient" onClick={() => save(true)} disabled={busy || advancedBlocked}>
               {saving === "next" ? (
-                <LoaderCircle size={16} strokeWidth={1.75} className="animate-spin" />
+                <LoaderCircle size={16} strokeWidth={1.85} className="animate-spin" />
               ) : (
-                <SkipForward size={16} strokeWidth={1.75} />
+                <SkipForward size={16} strokeWidth={1.85} />
               )}
               {t("grading.saveNext")}
             </Button>

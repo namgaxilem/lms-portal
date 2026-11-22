@@ -2,33 +2,34 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "./cn";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "gradient" | "secondary" | "ghost" | "danger" | "light";
 type Size = "sm" | "md" | "lg" | "icon" | "icon-sm";
 
 const base =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-semibold transition duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-primary text-primary-fg hover:bg-primary-hover",
+  primary: "bg-primary text-primary-fg shadow-sm hover:bg-primary-hover focus-visible:outline-ring",
+  /** Brand gradient — for the one main call to action on a screen. */
+  gradient:
+    "bg-brand-gradient text-white shadow-md shadow-primary/25 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/30 focus-visible:outline-ring",
   secondary:
-    "border border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2",
-  ghost: "text-muted hover:bg-surface-2 hover:text-fg",
-  danger: "bg-error text-white hover:opacity-90",
+    "bg-surface text-fg ring-1 ring-line hover:bg-surface-2 hover:ring-line-strong focus-visible:outline-ring",
+  ghost: "text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-ring",
+  danger: "bg-error text-white hover:opacity-90 focus-visible:outline-ring",
+  /** White button for use on gradient / coloured backgrounds, with a white focus outline. */
+  light: "bg-white text-slate-900 shadow-md shadow-black/10 hover:-translate-y-0.5 focus-visible:outline-white",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px]",
-  md: "h-9 px-4 text-sm",
-  lg: "h-11 px-5 text-sm",
-  icon: "h-9 w-9",
-  "icon-sm": "h-8 w-8",
+  sm: "h-9 rounded-xl px-3.5 text-[13px]",
+  md: "h-10 rounded-xl px-4 text-sm",
+  lg: "h-12 rounded-2xl px-6 text-[15px]",
+  icon: "h-10 w-10 rounded-xl",
+  "icon-sm": "h-9 w-9 rounded-xl",
 };
 
-export function buttonClass(
-  variant: Variant = "primary",
-  size: Size = "md",
-  className?: string
-) {
+export function buttonClass(variant: Variant = "primary", size: Size = "md", className?: string) {
   return cn(base, variants[variant], sizes[size], className);
 }
 
@@ -39,40 +40,41 @@ interface CommonProps {
   children?: ReactNode;
 }
 
-/** Button, or a Next.js Link styled as one when `href` is set. */
-export function Button({
-  variant,
-  size,
-  className,
-  href,
-  external,
-  ...props
-}: CommonProps &
-  Omit<ComponentProps<"button">, "className"> & {
-    href?: string;
+type AsButton = CommonProps & Omit<ComponentProps<"button">, "className"> & { href?: undefined; external?: undefined };
+type AsLink = CommonProps &
+  Omit<ComponentProps<"a">, "className" | "href"> & {
+    href: string;
     /** Open href in a new tab (for Moodle deep links). */
     external?: boolean;
-  }) {
+    /** Renders a non-interactive look-alike instead of a link. */
+    disabled?: boolean;
+  };
+
+/** Button, or a Next.js Link styled as one when `href` is set. */
+export function Button(props: AsButton | AsLink) {
+  if (props.href === undefined) {
+    const { variant, size, className, ...rest } = props;
+    return <button type="button" className={buttonClass(variant, size, className)} {...rest} />;
+  }
+  const { variant, size, className, href, external, disabled, children, ...rest } = props;
   const cls = buttonClass(variant, size, className);
-  if (href) {
-    if (external) {
-      return (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className={cls}
-          aria-label={props["aria-label"]}
-        >
-          {props.children}
-        </a>
-      );
-    }
+  if (disabled) {
     return (
-      <Link href={href} className={cls} aria-label={props["aria-label"]}>
-        {props.children}
-      </Link>
+      <span aria-disabled="true" className={cn(cls, "pointer-events-none opacity-50")}>
+        {children}
+      </span>
     );
   }
-  return <button type="button" className={cls} {...props} />;
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={cls} {...rest}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={cls} {...rest}>
+      {children}
+    </Link>
+  );
 }

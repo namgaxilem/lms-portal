@@ -77,11 +77,21 @@ export async function moodleLogin(
   return json.token;
 }
 
-/** Call any Moodle web service function with a token. */
+/**
+ * Call any Moodle web service function with a token.
+ *
+ * Like the Moodle app, text is returned filtered (multilang, media, MathJax…),
+ * and `lang` (the portal's UI language) makes Moodle-generated strings such as
+ * activity date labels match it; Moodle ignores a language pack it doesn't have.
+ * Pass `filter: false` for text a form edits and saves back: filter output
+ * (one language of a multilang text, autolinks, emoticon images, media players)
+ * must never be written back into Moodle.
+ */
 export async function moodleCall<T = unknown>(
   token: string,
   wsfunction: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
+  { lang, filter = true }: { lang?: string; filter?: boolean } = {}
 ): Promise<T> {
   assertConfigured();
   const flat: FlatParams = {};
@@ -91,6 +101,8 @@ export async function moodleCall<T = unknown>(
     wstoken: token,
     wsfunction,
     moodlewsrestformat: "json",
+    moodlewssettingfilter: filter ? "1" : "0",
+    ...(lang ? { moodlewssettinglang: lang } : {}),
     ...flat,
   });
 
