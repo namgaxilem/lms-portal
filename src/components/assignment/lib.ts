@@ -3,20 +3,12 @@ import type {
   AssignSubmission,
   Assignment,
   MoodleFile,
+  MoodleWarning,
   SubmissionStatus,
 } from "@/lib/moodle/types";
 import { fileUrl } from "@/lib/moodle/files";
-
-/** Moodle external_warnings item (returned by save/submit/remove calls). */
-export interface WsWarning {
-  item?: string;
-  itemid?: number;
-  warningcode?: string;
-  message: string;
-}
-
-/** Translation function shape from useT(). */
-export type TFn = (key: string, params?: Record<string, string | number>) => string;
+import { decodeEntities, formatDateTime, hasRichContent, stripHtml } from "@/lib/format";
+import type { TFn } from "@/i18n/translate";
 
 /* ---------------- Assignment settings ---------------- */
 
@@ -74,6 +66,15 @@ export function fileAllowed(name: string, s: SubmissionSettings) {
   return s.extensions.some((ext) => lower.endsWith(ext));
 }
 
+/**
+ * The submission statement students must accept, or null. Moodle drops the
+ * requirement when the site statement for this submission type is empty
+ * (get_assignments then sends "" or nothing).
+ */
+export function statementText(a: Assignment): string | null {
+  return a.requiresubmissionstatement && hasRichContent(a.submissionstatement) ? a.submissionstatement : null;
+}
+
 /* ---------------- Submission data ---------------- */
 
 export function currentSubmission(
@@ -88,17 +89,29 @@ function plugin(plugins: AssignPlugin[] | undefined, type: string) {
   return plugins?.find((p) => p.type === type);
 }
 
+/** Online text of a submission (always HTML: the WS formats every editor field). */
 export function onlineText(plugins: AssignPlugin[] | undefined) {
   const field = plugin(plugins, "onlinetext")?.editorfields?.find((f) => f.name === "onlinetext");
   return field && field.text.trim() ? field : undefined;
 }
 
+/** Files of one plugin's file area (Moodle lists the area's "." directory entry too). */
+function fileArea(plugins: AssignPlugin[] | undefined, type: string, area: string): MoodleFile[] {
+  return plugin(plugins, type)?.fileareas?.find((a) => a.area === area)?.files?.filter((f) => f.filename !== ".") ?? [];
+}
+
 export function submissionFiles(plugins: AssignPlugin[] | undefined): MoodleFile[] {
-  return (
-    plugin(plugins, "file")
-      ?.fileareas?.find((a) => a.area === "submission_files")
-      ?.files?.filter((f) => f.filename !== ".") ?? []
-  );
+  return fileArea(plugins, "file", "submission_files");
+}
+
+/** assignfeedback_file's feedback_files: the feedback file area teachers upload to. */
+export function feedbackFileArea(plugins: AssignPlugin[] | undefined): MoodleFile[] {
+  return fileArea(plugins, "file", "feedback_files");
+}
+
+/** The annotated PDF of assignfeedback_editpdf ("download"); its page images, stamps and tmp areas are internal. */
+export function annotatedPdfs(plugins: AssignPlugin[] | undefined): MoodleFile[] {
+  return fileArea(plugins, "editpdf", "download");
 }
 
 export function feedbackComments(plugins: AssignPlugin[] | undefined) {
@@ -106,20 +119,34 @@ export function feedbackComments(plugins: AssignPlugin[] | undefined) {
   return field?.text.trim() ? field.text : undefined;
 }
 
-/** Every file from feedback plugins (feedback_files, annotated PDF…). */
+/** Feedback files a student sees: uploaded feedback files and the annotated PDF. */
 export function feedbackFiles(plugins: AssignPlugin[] | undefined): MoodleFile[] {
-  return (plugins ?? [])
-    .filter((p) => p.type !== "comments")
-    .flatMap((p) => p.fileareas ?? [])
-    .flatMap((a) => a.files ?? [])
-    .filter((f) => f.filename !== ".");
+  return [...feedbackFileArea(plugins), ...annotatedPdfs(plugins)];
 }
 
-/** Moodle raw grade string → number, or null when not graded. */
+/** Moodle raw grade string → number, or null when not graded ("" / "-1.00000"). */
 export function rawGrade(grade: string | undefined | null) {
   if (grade === undefined || grade === null || grade === "") return null;
   const n = Number(grade);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Moodle's rendered grade (`gradefordisplay`), or null when it shows no grade.
+ * It comes from the gradebook, so it also covers grades overridden there.
+ */
+export function gradeHtml(html: string | null | undefined) {
+  if (!html) return null;
+  const text = stripHtml(html);
+  return text && text !== "-" ? html : null;
+}
+
+/** Short plain-text grade for compact places (null for rubric/guide markup). */
+export function gradeLabel(html: string | null | undefined) {
+  const grade = gradeHtml(html);
+  if (!grade || /<table/i.test(grade)) return null;
+  const text = stripHtml(grade).replace(/\s+/g, " ");
+  return text.length <= 32 ? text : null;
 }
 
 /* ---------------- Text conversion ---------------- */
@@ -148,14 +175,7 @@ const BLOCK = /^(P|DIV|H[1-6]|LI|UL|OL|BLOCKQUOTE|PRE|TABLE|TR|SECTION|ARTICLE)$
 
 /** HTML → plain text, keeping paragraph and line breaks. */
 export function htmlToText(html: string) {
-  if (typeof DOMParser === "undefined") {
-    return html
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(p|div|h\d|li)>/gi, "\n\n")
-      .replace(/<[^>]*>/g, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
+  if (typeof DOMParser === "undefined") return stripHtml(html);
   const doc = new DOMParser().parseFromString(html, "text/html");
   let out = "";
   const walk = (node: Node) => {
@@ -188,74 +208,59 @@ export function isRichHtml(html: string) {
   return tags.some((t) => !/^<\s*(p|br|div|span)$/i.test(t));
 }
 
+/** Images/audio/video count as content for Moodle even without words. */
+export function hasEmbeddedMedia(html: string) {
+  return /<\s*(img|video|audio)\b/i.test(html);
+}
+
 /** Word count close to Moodle's count_words(). */
 export function countWords(text: string) {
-  const words = text.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
-  return words.length;
+  return text.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}
+
+/**
+ * Turns the absolute file URLs the WS put into a submission's online text back
+ * into Moodle's @@PLUGINFILE@@ placeholder, so the text can be saved unchanged
+ * (with draft itemid 0) without losing its embedded files.
+ */
+export function toPluginfilePlaceholders(html: string, submissionId: number) {
+  const url = new RegExp(
+    `https?://[^"'\\s<>]+?/(?:webservice/)?pluginfile\\.php/\\d+/assignsubmission_onlinetext/submissions_onlinetext/${submissionId}/`,
+    "g"
+  );
+  return html.replace(url, "@@PLUGINFILE@@/");
 }
 
 /* ---------------- Formatting ---------------- */
 
-export function formatBytes(bytes: number | undefined) {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-}
+const WHEN: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
 
-export function formatDateTime(unix: number, locale: string) {
-  return new Date(unix * 1000).toLocaleString(locale === "vi" ? "vi-VN" : "en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-/** Human duration with the two largest units ("2 ngày 3 giờ"). */
-export function formatDuration(seconds: number, t: TFn) {
-  const s = Math.max(0, Math.floor(seconds));
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const parts: string[] = [];
-  if (d) parts.push(t("assignment.unit.day", { n: d }));
-  if (h) parts.push(t("assignment.unit.hour", { n: h }));
-  if (!d && m) parts.push(t("assignment.unit.minute", { n: m }));
-  if (!parts.length) parts.push(t("assignment.unit.minute", { n: s >= 60 ? 1 : 0 }));
-  return parts.slice(0, 2).join(" ");
-}
-
-/** HH:MM:SS countdown. */
-export function formatClock(seconds: number) {
-  const s = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(s / 3600);
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+/** Date, weekday and time ("T2, 24/11/2026, 23:59") for deadlines. */
+export function formatWhen(unix: number | null | undefined, locale: string) {
+  return formatDateTime(unix, locale, WHEN);
 }
 
 /* ---------------- Files ---------------- */
 
-export function isImage(f: MoodleFile) {
-  return (f.mimetype ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.filename);
-}
-
-export function isPreviewable(f: MoodleFile) {
-  return isImage(f) || f.mimetype === "application/pdf" || /\.pdf$/i.test(f.filename);
+/** A kept file could not be downloaded for re-upload. */
+export class FileRefetchError extends Error {
+  constructor(readonly filename: string) {
+    super(filename);
+    this.name = "FileRefetchError";
+  }
 }
 
 /** Download an existing Moodle file (through the proxy) so it can be re-uploaded to a draft area. */
 export async function fetchAsFile(f: MoodleFile): Promise<File> {
   const res = await fetch(fileUrl(f.fileurl, { download: true }));
-  if (!res.ok) throw new Error(f.filename);
+  if (!res.ok) throw new FileRefetchError(f.filename);
   const blob = await res.blob();
   return new File([blob], f.filename, { type: f.mimetype || blob.type });
 }
@@ -272,14 +277,33 @@ export function emptyDraftItemid() {
   return (buf[0] % 999_999_000) + 1_000;
 }
 
-/** Readable messages from a Moodle warnings array (empty = success). */
-export function warningMessages(warnings: WsWarning[] | null | undefined) {
-  return (warnings ?? [])
-    .map((w) => {
-      const msg = w.message || w.warningcode || "";
-      // submit_for_grading prefixes "User id: …, Assignment id: … Notices:" to the real notices.
-      const i = msg.indexOf("Notices:");
-      return (i >= 0 ? msg.slice(i + 8) : msg).trim() || w.warningcode || "";
-    })
-    .filter(Boolean);
+/**
+ * Warning codes whose detail is a fixed string (or just "assign"): the portal
+ * shows its own localised text for them.
+ */
+const WARNING_KEY: Record<string, string> = {
+  submissionnotopen: "assignment.blocked.generic",
+  timelimitnotenabled: "assignment.timed.notEnabled",
+  opensubmissionexists: "assignment.warning.attemptInProgress",
+  submissionnotfoundtoremove: "assignment.warning.nothingToRemove",
+};
+
+/**
+ * Readable messages from a mod_assign warnings array (empty = success).
+ *
+ * mod_assign's generate_warning() puts the real, localised reason (the
+ * notices) in `item`, escaped with s(); `message` is a fixed English line per
+ * code, so it is never shown. submit_for_grading prefixes
+ * "User id: …, Assignment id: … Notices:" to the notices. `fallback` replaces
+ * a warning with no readable detail.
+ */
+export function warningMessages(warnings: MoodleWarning[] | null | undefined, t: TFn, fallback: string) {
+  return (warnings ?? []).map((w) => {
+    const key = w.warningcode ? WARNING_KEY[w.warningcode] : undefined;
+    if (key) return t(key);
+    const detail = decodeEntities(w.item ?? "");
+    const i = detail.indexOf("Notices:");
+    const text = (i >= 0 ? detail.slice(i + "Notices:".length) : detail).replace(/<[^>]*>/g, "").trim();
+    return text || fallback;
+  });
 }

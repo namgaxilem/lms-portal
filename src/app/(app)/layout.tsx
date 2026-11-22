@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser, getToken, getViewRole } from "@/lib/session";
+import { getSessionUser, getToken } from "@/lib/session";
 import { SessionProvider } from "@/components/providers/SessionProvider";
 import AppLayout from "@/components/layout/AppLayout";
 
@@ -8,16 +8,12 @@ export default async function ProtectedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [token, user, role] = await Promise.all([
-    getToken(),
-    getSessionUser(),
-    getViewRole(),
-  ]);
+  const [token, user] = await Promise.all([getToken(), getSessionUser()]);
 
   if (!token || !user) redirect("/login");
 
   return (
-    <SessionProvider user={user} initialRole={role}>
+    <SessionProvider user={user}>
       <AppLayout>{children}</AppLayout>
     </SessionProvider>
   );

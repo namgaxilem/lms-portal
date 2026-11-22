@@ -1,5 +1,6 @@
 import { MOODLE_URL, assertConfigured } from "@/lib/moodle/config";
 import { proxyMoodleFile } from "@/lib/moodle/proxy";
+import { portalConfigFromEnv } from "@/lib/public-config";
 import { getToken } from "@/lib/session";
 
 /**
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
 
   // Moodle builds file URLs from its public wwwroot, which may differ from the
   // internal MOODLE_URL the server talks to.
-  const base = [MOODLE_URL, process.env.NEXT_PUBLIC_MOODLE_URL]
+  const base = [MOODLE_URL, portalConfigFromEnv().moodleUrl]
     .filter((u): u is string => !!u)
     .map((u) => new URL(u))
     .find((b) => target.origin === b.origin && target.pathname.startsWith(`${b.pathname.replace(/\/+$/, "")}/`));
@@ -41,11 +42,17 @@ export async function GET(request: Request) {
   }
 
   const query = new URLSearchParams({ token });
+  // Thumbnail variants ("thumb", "tinyicon", "bigthumb") are part of the file's identity.
+  const preview = target.searchParams.get("preview");
+  if (preview && /^[a-z0-9]+$/i.test(preview)) query.set("preview", preview);
   if (params.get("download") === "1") query.set("forcedownload", "1");
   const url = `${MOODLE_URL}/webservice/pluginfile.php${match[1]}?${query}`;
 
   return proxyMoodleFile(request, url, {
-    cacheControl: "private, max-age=3600",
+    // Many file URLs carry no revision (itemid 0), so a file replaced under the
+    // same name keeps its URL: stay fresh briefly, then revalidate with Moodle's
+    // ETag (a cheap 304) instead of serving a stale copy for an hour.
+    cacheControl: "private, max-age=300, stale-while-revalidate=3600",
     untrusted: true,
   });
 }

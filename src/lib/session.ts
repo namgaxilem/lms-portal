@@ -1,15 +1,16 @@
 import "server-only";
 import { cookies } from "next/headers";
-import type { SessionUser, ViewRole } from "./moodle/types";
+import type { SessionUser } from "./moodle/types";
 
 const TOKEN_COOKIE = "mdl_token";
 const USER_COOKIE = "mdl_user";
-const ROLE_COOKIE = "mdl_view";
+/** Legacy view-role cookie; only deleted now (role switching was removed). */
+const LEGACY_ROLE_COOKIE = "mdl_view";
 const MAX_AGE = 60 * 60 * 24 * 14; // 14 days
 
-function cookieOptions(httpOnly: boolean) {
+function cookieOptions() {
   return {
-    httpOnly,
+    httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     path: "/",
@@ -19,8 +20,8 @@ function cookieOptions(httpOnly: boolean) {
 
 export async function setSession(token: string, user: SessionUser) {
   const store = await cookies();
-  store.set(TOKEN_COOKIE, token, cookieOptions(true));
-  store.set(USER_COOKIE, JSON.stringify(user), cookieOptions(true));
+  store.set(TOKEN_COOKIE, token, cookieOptions());
+  store.set(USER_COOKIE, JSON.stringify(user), cookieOptions());
 }
 
 export async function getToken(): Promise<string | undefined> {
@@ -39,19 +40,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   }
 }
 
-export async function getViewRole(): Promise<ViewRole> {
-  const store = await cookies();
-  return store.get(ROLE_COOKIE)?.value === "teacher" ? "teacher" : "student";
-}
-
-export async function setViewRole(role: ViewRole) {
-  const store = await cookies();
-  store.set(ROLE_COOKIE, role, cookieOptions(false));
-}
-
 export async function clearSession() {
   const store = await cookies();
   store.delete(TOKEN_COOKIE);
   store.delete(USER_COOKIE);
-  store.delete(ROLE_COOKIE);
+  store.delete(LEGACY_ROLE_COOKIE);
 }

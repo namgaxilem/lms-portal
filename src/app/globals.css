@@ -6,10 +6,19 @@
 /* Enable `dark:` variants keyed off the `.dark` class ThemeProvider toggles. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Inside the school-coloured phone top bar (.brand-bar, below lg): light-on-colour styles. */
+@custom-variant brand-bar {
+  @media (width < 64rem) {
+    &:where(.brand-bar *) {
+      @slot;
+    }
+  }
+}
+
 @theme inline {
-  /* ── Semantic color tokens ──
-     Runtime CSS vars (below) flip for dark mode; brand accents come from
-     src/config/brand.ts via BrandStyle. */
+  /* ── Semantic colour tokens ──
+     Runtime CSS vars (below) flip for dark mode; brand colours come from the
+     deployment's brand config via BrandStyle (--brand-*). */
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
   --color-surface-2: var(--c-surface-2);
@@ -26,6 +35,13 @@
   --color-primary-soft: var(--c-primary-soft);
   --color-primary-text: var(--c-primary-text);
   --color-ring: var(--c-ring);
+  /* School-coloured navigation, derived from the brand primary (brand.ts sidebarColors). */
+  --color-sidebar: var(--c-sidebar);
+  --color-sidebar-active: var(--brand-sidebar-active);
+  --color-sidebar-label: var(--brand-sidebar-label);
+  --color-sidebar-muted: var(--brand-sidebar-muted);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-accent: var(--brand-accent);
   --color-accent: var(--c-accent);
   --color-accent-soft: var(--c-accent-soft);
   --color-violet: var(--c-violet);
@@ -33,95 +49,107 @@
 
   --color-success: var(--c-success);
   --color-success-soft: var(--c-success-soft);
+  --color-success-text: var(--c-success-text);
   --color-warning: var(--c-warning);
   --color-warning-soft: var(--c-warning-soft);
+  --color-warning-text: var(--c-warning-text);
   --color-error: var(--c-error);
   --color-error-soft: var(--c-error-soft);
+  --color-error-text: var(--c-error-text);
 
   /* ── Type ── */
-  --font-sans: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-brand), ui-sans-serif, system-ui, sans-serif;
   --text-2xs: 11px;
   --text-2xs--line-height: 1.4;
 
   /* ── Radii ── */
-  --radius-control: 8px;
-  --radius-card: 12px;
+  --radius-control: 12px;
+  --radius-card: 20px;
+  --radius-hero: 28px;
 
-  /* ── Shadows (neutral, only for floating layers) ── */
-  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.08);
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04);
+  /* ── Shadows ── */
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 2px 12px rgb(15 23 42 / 0.04);
+  --shadow-lift: 0 2px 4px rgb(15 23 42 / 0.04), 0 16px 32px rgb(15 23 42 / 0.08);
+  --shadow-pop: 0 1px 2px rgb(15 23 42 / 0.05), 0 12px 32px rgb(15 23 42 / 0.12);
+
+  /* ── Motion ── */
+  --animate-fade-in: fade-in 0.2s ease both;
+  --animate-fade-in-up: fade-in-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-flicker: flicker 1.8s ease-in-out infinite;
+  --animate-float: float 5s ease-in-out infinite;
 }
 
 :root {
   color-scheme: light;
-  --c-canvas: #fafafa;
+  --c-canvas: #f5f6fb;
   --c-surface: #ffffff;
-  --c-surface-2: #f4f4f5;
-  --c-surface-3: #e4e4e7;
-  --c-line: #e4e4e7;
-  --c-line-strong: #d4d4d8;
-  --c-fg: #18181b;
-  --c-muted: #52525b;
-  --c-subtle: #71717a;
+  --c-surface-2: #f1f3f9;
+  --c-surface-3: #e6e9f2;
+  --c-line: #e6e8f0;
+  --c-line-strong: #d5d9e5;
+  --c-fg: #0f172a;
+  --c-muted: #475569;
+  --c-subtle: #5b6578;
 
   --c-primary: var(--brand-primary);
-  --c-primary-hover: color-mix(in oklab, var(--brand-primary) 88%, black);
+  --c-primary-hover: color-mix(in oklab, var(--brand-primary) 86%, black);
   --c-primary-fg: #ffffff;
-  --c-primary-soft: color-mix(in oklab, var(--brand-primary) 8%, white);
-  --c-primary-text: var(--brand-primary);
-  --c-ring: color-mix(in oklab, var(--brand-primary) 40%, transparent);
+  --c-primary-soft: color-mix(in oklab, var(--brand-primary) 9%, white);
+  --c-primary-text: color-mix(in oklab, var(--brand-primary) 92%, black);
+  /* Opaque focus colour: at least 3:1 against surfaces (WCAG 1.4.11). */
+  --c-ring: var(--c-primary-text);
+  --c-sidebar: var(--brand-sidebar);
 
-  --c-accent: #0284c7;
+  --c-accent: #0369a1;
   --c-accent-soft: #e0f2fe;
   --c-violet: #6d28d9;
   --c-violet-soft: #ede9fe;
-  /* Soft mesh colors (light) */
-  --mesh-a: color-mix(in oklab, var(--brand-primary) 16%, transparent);
-  --mesh-b: color-mix(in oklab, #38bdf8 22%, transparent);
-  --mesh-c: color-mix(in oklab, #a78bfa 14%, transparent);
 
   --c-success: var(--brand-success);
+  --c-success-text: color-mix(in oklab, var(--brand-success) 72%, black);
   --c-warning: var(--brand-warning);
+  --c-warning-text: color-mix(in oklab, var(--brand-warning) 66%, black);
   --c-error: var(--brand-error);
-  --c-success-soft: color-mix(in oklab, var(--brand-success) 10%, white);
+  --c-error-text: color-mix(in oklab, var(--brand-error) 82%, black);
+  --c-success-soft: color-mix(in oklab, var(--brand-success) 11%, white);
   --c-warning-soft: color-mix(in oklab, var(--brand-warning) 14%, white);
-  --c-error-soft: color-mix(in oklab, var(--brand-error) 9%, white);
+  --c-error-soft: color-mix(in oklab, var(--brand-error) 10%, white);
 }
 
 /* ── Dark theme: toggled by adding `.dark` to <html> (see ThemeProvider) ── */
 html.dark {
   color-scheme: dark;
-  --c-canvas: #09090b;
-  --c-surface: #111113;
-  --c-surface-2: #18181b;
-  --c-surface-3: #27272a;
-  --c-line: #27272a;
-  --c-line-strong: #3f3f46;
-  --c-fg: #fafafa;
-  --c-muted: #a1a1aa;
-  --c-subtle: #8b8b94;
+  --c-canvas: #0b0d14;
+  --c-surface: #12151f;
+  --c-surface-2: #181c28;
+  --c-surface-3: #232838;
+  --c-line: #232838;
+  --c-line-strong: #323848;
+  --c-fg: #f1f5f9;
+  --c-muted: #a5b0c2;
+  --c-subtle: #8a94a8;
 
-  /* Brand blue is too dark on near-black: fill buttons with a lifted tone and
-     use an even lighter one for text/links. */
+  /* Brand colours are usually too dark on near-black: use the lifted tone. */
   --c-primary: var(--brand-primary-dark);
-  --c-primary-hover: color-mix(in oklab, var(--brand-primary-dark) 88%, white);
-  --c-primary-fg: #ffffff;
+  --c-primary-hover: color-mix(in oklab, var(--brand-primary-dark) 86%, white);
+  --c-primary-fg: #0b0d14;
   --c-primary-soft: color-mix(in oklab, var(--brand-primary-dark) 16%, transparent);
-  --c-primary-text: color-mix(in oklab, var(--brand-primary-dark) 70%, white);
-  --c-ring: color-mix(in oklab, var(--brand-primary-dark) 55%, transparent);
+  --c-primary-text: color-mix(in oklab, var(--brand-primary-dark) 72%, white);
+  --c-ring: var(--c-primary-text);
+  --c-sidebar: var(--brand-sidebar-dark);
 
   --c-accent: #38bdf8;
   --c-accent-soft: color-mix(in oklab, #38bdf8 16%, transparent);
   --c-violet: #a78bfa;
   --c-violet-soft: color-mix(in oklab, #a78bfa 16%, transparent);
-  --mesh-a: color-mix(in oklab, var(--brand-primary-dark) 22%, transparent);
-  --mesh-b: color-mix(in oklab, #38bdf8 12%, transparent);
-  --mesh-c: color-mix(in oklab, #a78bfa 10%, transparent);
 
-  /* Status colors lifted for contrast on dark surfaces. */
+  /* Status colours lifted for contrast on dark surfaces. */
   --c-success: color-mix(in oklab, var(--brand-success) 65%, white);
+  --c-success-text: color-mix(in oklab, var(--brand-success) 55%, white);
   --c-warning: color-mix(in oklab, var(--brand-warning) 80%, white);
+  --c-warning-text: color-mix(in oklab, var(--brand-warning) 70%, white);
   --c-error: color-mix(in oklab, var(--brand-error) 55%, white);
+  --c-error-text: color-mix(in oklab, var(--brand-error) 50%, white);
   --c-success-soft: color-mix(in oklab, var(--brand-success) 18%, transparent);
   --c-warning-soft: color-mix(in oklab, var(--brand-warning) 16%, transparent);
   --c-error-soft: color-mix(in oklab, var(--brand-error) 20%, transparent);
@@ -137,7 +165,6 @@ html.dark {
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
-    font-feature-settings: "cv11", "ss01";
   }
   h1,
   h2,
@@ -166,30 +193,52 @@ html.dark {
   }
 }
 
-/* ── Soft color accents (use sparingly: hero, login, banners, shell strip) ── */
-@layer components {
-  /* Layered radial "mesh" wash in brand blue / sky / violet. */
-  .bg-mesh {
-    background-image:
-      radial-gradient(60% 80% at 0% 0%, var(--mesh-a), transparent 70%),
-      radial-gradient(50% 70% at 100% 0%, var(--mesh-b), transparent 70%),
-      radial-gradient(60% 60% at 70% 100%, var(--mesh-c), transparent 70%);
+/* ── Brand gradient: primary → secondary → accent (set per school) ── */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--brand-primary) 0%,
+    var(--brand-secondary) 58%,
+    var(--brand-accent) 100%
+  );
+}
+@utility text-brand-gradient {
+  background-image: linear-gradient(90deg, var(--c-primary-text), var(--brand-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Per-course colour: set `--course` on an element (see lib/course-color.ts) ── */
+@utility bg-course {
+  background-color: var(--course);
+}
+@utility bg-course-soft {
+  background-color: color-mix(in oklab, var(--course) 12%, transparent);
+}
+/* Deepened so white text stays readable on every palette colour, light ones
+   (amber, teal, emerald, sky, orange) included: ≥3:1 at the lightest stop for
+   large text, ≥4.5:1 from the middle on. HeroCard adds a scrim behind text. */
+@utility bg-course-gradient {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--course) 82%, black) 0%,
+    color-mix(in oklab, var(--course) 68%, black) 55%,
+    color-mix(in oklab, var(--course) 50%, black) 100%
+  );
+}
+/* Course-coloured text: ≥4.5:1 on white and on bg-course-soft for all colours. */
+@utility text-course {
+  color: color-mix(in oklab, var(--course) 66%, black);
+  :where(.dark, .dark *) & {
+    color: color-mix(in oklab, var(--course) 55%, white);
   }
-  /* Brand-tinted overlay for legible white text on photos. */
-  .bg-photo-overlay {
-    background-image: linear-gradient(
-      160deg,
-      color-mix(in oklab, var(--brand-primary) 88%, black) 0%,
-      color-mix(in oklab, var(--brand-primary) 70%, transparent) 55%,
-      rgb(2 6 23 / 0.55) 100%
-    );
-  }
-  .text-gradient {
-    background-image: linear-gradient(90deg, var(--c-primary-text), var(--c-accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
+}
+@utility stroke-course {
+  stroke: var(--course);
+}
+@utility shadow-course {
+  box-shadow: 0 10px 24px -8px color-mix(in oklab, var(--course) 45%, transparent);
 }
 
 /* ── Moodle rich text (RichText component) ── */
@@ -211,7 +260,7 @@ html.dark {
   .rich-text ul { list-style: disc; padding-left: 1.4em; }
   .rich-text ol { list-style: decimal; padding-left: 1.4em; }
   .rich-text li + li { margin-top: 0.25em; }
-  .rich-text img, .rich-text video, .rich-text iframe { max-width: 100%; height: auto; border-radius: 0.5rem; }
+  .rich-text img, .rich-text video, .rich-text iframe { max-width: 100%; height: auto; border-radius: 0.75rem; }
   .rich-text blockquote { border-left: 3px solid var(--c-line-strong); padding-left: 0.9em; color: var(--c-muted); }
   .rich-text pre, .rich-text code { font-family: ui-monospace, monospace; font-size: 0.9em; background: var(--c-surface-2); border-radius: 0.375rem; }
   .rich-text code { padding: 0.1em 0.35em; }
@@ -240,36 +289,56 @@ html.dark {
   background-clip: content-box;
 }
 
-/* ── Animations (subtle; disabled under reduced motion) ── */
+/* ── Animations (disabled under reduced motion) ── */
 @keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-
-.animate-fade-in-up {
-  animation: fade-in-up 0.3s ease both;
+@keyframes flicker {
+  0%, 100% { transform: scale(1) rotate(-2deg); }
+  50% { transform: scale(1.08) rotate(3deg); }
 }
-.animate-fade-in {
-  animation: fade-in 0.2s ease both;
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+/* Progress bars grow from the left on mount. */
+@keyframes progress-grow {
+  from { transform: scaleX(0); }
+}
+/* ProgressRing: stroke draws from empty to its value (--ring-len set inline). */
+@keyframes ring-fill {
+  from { stroke-dashoffset: var(--ring-len); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-fade-in-up,
-  .animate-fade-in {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Language switch (antd Segmented) on the school-coloured phone top bar. */
+@media (width < 64rem) {
+  @layer components {
+    .brand-bar .ant-segmented {
+      background: rgb(255 255 255 / 0.12);
+      color: rgb(255 255 255 / 0.85);
+    }
+    .brand-bar .ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+      color: #fff;
+    }
+    .brand-bar .ant-segmented .ant-segmented-item-selected,
+    .brand-bar .ant-segmented .ant-segmented-thumb {
+      background: #fff;
+      color: var(--brand-sidebar-active);
+    }
   }
 }

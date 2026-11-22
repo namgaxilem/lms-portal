@@ -2,13 +2,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Drawer } from "antd";
-import { ArrowLeft, ChevronLeft, ChevronRight, Users } from "lucide-react";
 import { moodleClient, useMoodle } from "@/lib/client-api";
-import { useT } from "@/i18n/I18nProvider";
+import { useLocale, useT } from "@/i18n/I18nProvider";
 import { useSession } from "@/components/providers/SessionProvider";
-import { UserAvatar } from "@/components/UserAvatar";
-import { Badge, Button, Card, QueryState, Skeleton } from "@/components/ui";
-import { MOODLE_BASE } from "@/lib/public-config";
+import { BackLink, QueryState, Skeleton } from "@/components/ui";
+import { currentSubmission, rawGrade } from "@/components/assignment/lib";
+import { moodleBase } from "@/lib/public-config";
 import type {
   AssignGradesResult,
   AssignParticipant,
@@ -16,26 +15,43 @@ import type {
   CourseModuleInfo,
   SubmissionStatus,
 } from "@/lib/moodle/types";
+import { foldSearch } from "@/lib/format";
+import { useKeyedAsync } from "@/lib/moodle/hooks";
 import { AssignmentInfo } from "./AssignmentInfo";
-import { GradeForm } from "./GradeForm";
-import { ParticipantList, statusBadge, type ParticipantRow } from "./ParticipantList";
+import { GradeForm, type SavedResult } from "./GradeForm";
+import { ParticipantList, type ParticipantRow } from "./ParticipantList";
+import { StudentHeader } from "./StudentHeader";
 import { SubmissionView } from "./SubmissionView";
+import { useActivityGroups } from "./useActivityGroups";
 import {
-  currentSubmission,
-  fetchGradingMeta,
+  FILTERS,
+  fetchGradingFillings,
+  fetchGradingSetup,
   formatGrade,
+  gradeLockedInGradebook,
   latestGrades,
   matchesFilter,
   participantName,
-  useKeyedFetch,
+  rememberMethodBlocked,
+  wasMethodBlocked,
   type ParticipantFilter,
 } from "./lib";
+import type { GradingFillingsResult, SaveOutcome } from "./types";
 
-/** Lowercase, accent-free text for Vietnamese-friendly search. */
-const fold = (s: string) =>
-  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gi, "d").toLowerCase();
-
-const FILTERS: ParticipantFilter[] = ["all", "needsGrading", "submitted", "notSubmitted"];
+function WorkspaceSkeleton() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-36 w-full" />
+      <div className="flex gap-4">
+        <Skeleton className="hidden h-[60vh] w-80 lg:block" />
+        <div className="flex-1 space-y-4">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-[50vh] w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function GradingWorkspace({
   cmid,
@@ -47,94 +63,118 @@ export function GradingWorkspace({
   courseHint?: number;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const router = useRouter();
   const { user } = useSession();
   const { modal } = App.useApp();
 
+  /* ---- Assignment ---- */
   const cmQ = useMoodle<CourseModuleInfo>("core_course_get_course_module", { cmid });
-  const courseid = cmQ.data?.cm.course;
-  const assignid = cmQ.data?.cm.instance;
+  const cm = cmQ.data?.cm;
+  const courseid = cm?.course;
+  // Editing teachers / managers: proxy for the release / review capabilities (see workflowOptions).
+  const canRelease = cm?.added !== undefined;
+  const assignid = cm?.modname === "assign" ? cm.instance : undefined;
+  // includenotenrolledcourses: admins / managers can grade without being enrolled.
   const assignmentsQ = useMoodle<AssignmentsResult>(
     "mod_assign_get_assignments",
-    { courseids: [courseid] },
-    !courseid
+    { courseids: [courseid], includenotenrolledcourses: true },
+    !assignid
   );
-  const assignment = assignmentsQ.data?.courses
-    .flatMap((c) => c.assignments)
-    .find((a) => a.id === assignid);
+  const course = assignmentsQ.data?.courses.find((c) => c.id === courseid);
+  const assignment = course?.assignments.find((a) => a.id === assignid);
+  const team = !!assignment?.teamsubmission;
+
+  /* ---- Groups, participants, grades, grading setup ---- */
+  const groups = useActivityGroups(cmid);
+  const [group, setGroup] = useState<number | null>(null);
+  const groupid = group ?? (groups && !groups.canSeeAll ? (groups.groups[0]?.id ?? 0) : 0);
   const participantsQ = useMoodle<AssignParticipant[]>(
     "mod_assign_list_participants",
-    { assignid, groupid: 0, filter: "", includeenrolments: false },
-    !assignid
+    { assignid, groupid, filter: "", includeenrolments: false },
+    !assignid || !groups
   );
-  const gradesQ = useMoodle<AssignGradesResult>(
-    "mod_assign_get_grades",
-    { assignmentids: [assignid] },
-    !assignid
-  );
-  const metaQ = useKeyedFetch(`meta:${cmid}`, () => fetchGradingMeta(cmid));
-  const meta = metaQ.data;
+  const gradesQ = useMoodle<AssignGradesResult>("mod_assign_get_grades", { assignmentids: [assignid] }, !assignid);
+  const [freshGrades, setFreshGrades] = useState<AssignGradesResult | null>(null);
+  const gradesData = freshGrades ?? gradesQ.data;
+  const grades = useMemo(() => latestGrades(gradesData, assignid ?? 0), [gradesData, assignid]);
+
+  // A failed setup blocks the form: it only fails when the caller's own Moodle calls fail (403 / 404 / 502).
+  const setupQ = useKeyedAsync(`setup:${cmid}`, () => fetchGradingSetup(cmid));
+  const setup = setupQ.data;
+  // Moodle ignored a plain grade: the assignment most likely uses advanced grading, and further
+  // saves would reset other students' grades. Remembered in this browser while the method is unknown.
+  const [blockedNow, setBlockedNow] = useState(false);
+  const blockedBefore = useMemo(() => setup?.method === "unknown" && wasMethodBlocked(cmid), [setup?.method, cmid]);
+  const methodBlocked = blockedNow || blockedBefore;
+  // Students whose grade Moodle kept because it is locked / overridden in the gradebook.
+  const [lockedUsers, setLockedUsers] = useState<ReadonlySet<number>>(() => new Set());
 
   // Log the grading table view once per assignment (fire and forget).
   useEffect(() => {
     if (assignid) moodleClient("mod_assign_view_grading_table", { assignid }).catch(() => {});
   }, [assignid]);
 
+  /* ---- Participant list ---- */
   const [patches, setPatches] = useState<Record<number, Partial<AssignParticipant>>>({});
   const [filter, setFilter] = useState<ParticipantFilter>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<number | undefined>(initialUser);
+  const [visit, setVisit] = useState(0);
   const [drawer, setDrawer] = useState(false);
   const dirtyRef = useRef(false);
 
+  const scale = setup?.scale;
   const allRows = useMemo<ParticipantRow[]>(() => {
     if (!participantsQ.data || !assignment) return [];
-    const grades = latestGrades(gradesQ.data, assignment.id);
     return participantsQ.data.map((p) => ({
       ...p,
       ...patches[p.id],
-      gradeLabel: formatGrade(grades.get(p.id)?.grade, assignment, meta?.scale),
+      gradeLabel: formatGrade(grades.get(p.id)?.grade, assignment, scale, locale),
     }));
-  }, [participantsQ.data, gradesQ.data, patches, assignment, meta?.scale]);
+  }, [participantsQ.data, grades, patches, assignment, scale, locale]);
 
   const counts = useMemo(
     () =>
-      Object.fromEntries(
-        FILTERS.map((f) => [f, allRows.filter((r) => matchesFilter(r, f)).length])
-      ) as Record<ParticipantFilter, number>,
+      Object.fromEntries(FILTERS.map((f) => [f, allRows.filter((r) => matchesFilter(r, f)).length])) as Record<
+        ParticipantFilter,
+        number
+      >,
     [allRows]
   );
 
   const rows = useMemo(() => {
-    const q = fold(query.trim());
-    return allRows.filter(
-      (r) => matchesFilter(r, filter) && (!q || fold(participantName(r, t)).includes(q))
-    );
+    const q = foldSearch(query);
+    return allRows.filter((r) => matchesFilter(r, filter) && (!q || foldSearch(participantName(r, t)).includes(q)));
   }, [allRows, filter, query, t]);
 
-  // Default to the first participant needing grading (from the full list, so
-  // changing tabs never swaps the student under an unsaved form).
+  // ?user= (e.g. from a notification) only counts when that student is in the list;
+  // otherwise start at the first participant needing grading. Uses the full list, so
+  // changing tabs never swaps the student under an unsaved form.
   const selectedId =
-    selected ?? (allRows.find((r) => r.requiregrading) ?? allRows[0])?.id;
+    selected !== undefined && allRows.some((r) => r.id === selected)
+      ? selected
+      : (allRows.find((r) => r.requiregrading) ?? allRows[0])?.id;
   const selectedRow = allRows.find((r) => r.id === selectedId);
+  const selectedGrade = selectedId !== undefined ? grades.get(selectedId) : undefined;
   const idx = rows.findIndex((r) => r.id === selectedId);
   const nextRow = idx >= 0 ? rows[idx + 1] : rows.find((r) => r.id !== selectedId);
   const prevRow = idx > 0 ? rows[idx - 1] : undefined;
 
-  const statusQ = useKeyedFetch(
-    assignid && selectedId ? `status:${assignid}:${selectedId}` : null,
-    () =>
-      moodleClient<SubmissionStatus>("mod_assign_get_submission_status", {
-        assignid,
-        userid: selectedId,
-      })
+  /* ---- Selected student ---- */
+  // Unfiltered: GradeForm saves untouched feedback back exactly as Moodle stores it.
+  const statusQ = useKeyedAsync(assignid && selectedId ? `status:${assignid}:${selectedId}` : null, () =>
+    moodleClient<SubmissionStatus>("mod_assign_get_submission_status", { assignid, userid: selectedId }, { filter: false })
   );
-  // Rubric / guide fillings are per student; simple grading needs nothing extra.
-  const userMetaQ = useKeyedFetch(
-    meta && meta.method !== "simple" && selectedId ? `meta:${cmid}:${selectedId}` : null,
-    () => fetchGradingMeta(cmid, selectedId)
+  // Rubric / guide fillings, read once per visit of a student (the form holds them after a save).
+  const advanced = !!(setup?.rubric || setup?.guide);
+  const fillingsQ = useKeyedAsync<GradingFillingsResult>(
+    advanced && selectedId !== undefined && gradesData ? `fillings:${selectedId}:${visit}` : null,
+    () => (selectedGrade ? fetchGradingFillings(cmid, selectedGrade.id) : Promise.resolve({ fillings: [] }))
   );
-  const formMeta = meta?.method === "simple" ? meta : userMetaQ.data;
+  const fillings: GradingFillingsResult | null = !advanced
+    ? null
+    : (fillingsQ.data ?? (fillingsQ.error ? { fillings: [], issue: "unavailable" } : null));
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
@@ -147,26 +187,29 @@ export function GradingWorkspace({
   const go = (id: number) => {
     dirtyRef.current = false;
     setSelected(id);
+    setVisit((v) => v + 1);
     setDrawer(false);
-    router.replace(`/teacher/grading/${cmid}?user=${id}${courseid ? `&course=${courseid}` : ""}`, {
-      scroll: false,
-    });
+    router.replace(`/teacher/grading/${cmid}?user=${id}${courseid ? `&course=${courseid}` : ""}`, { scroll: false });
   };
 
-  const select = (id: number) => {
-    if (id === selectedId) return setDrawer(false);
-    if (!dirtyRef.current) return go(id);
+  /** Runs `action` now, or after confirming that unsaved changes may be dropped. */
+  const confirmDiscard = (action: () => void) => {
+    if (!dirtyRef.current) return action();
     modal.confirm({
       title: t("grading.unsavedTitle"),
       content: t("grading.unsavedBody"),
       okText: t("grading.discard"),
       cancelText: t("grading.keepEditing"),
       okButtonProps: { danger: true },
-      onOk: () => go(id),
+      onOk: () => {
+        dirtyRef.current = false;
+        action();
+      },
     });
   };
 
-  const team = !!assignment?.teamsubmission;
+  const select = (id: number) => (id === selectedId ? setDrawer(false) : confirmDiscard(() => go(id)));
+  const changeGroup = (id: number) => confirmDiscard(() => setGroup(id));
 
   const refreshParticipant = async (userid: number) => {
     if (!assignid) return;
@@ -177,7 +220,7 @@ export function GradingWorkspace({
     }
     const p = await moodleClient<Partial<AssignParticipant>>("mod_assign_get_participant", {
       assignid,
-      participantid: userid,
+      userid,
       embeduser: false,
     });
     setPatches((cur) => ({
@@ -191,23 +234,54 @@ export function GradingWorkspace({
     }));
   };
 
-  const onSaved = async (next: boolean) => {
-    const userid = selectedId!;
-    const target = next ? nextRow?.id : undefined;
-    const refresh = [gradesQ.reload(), refreshParticipant(userid).catch(() => {})];
-    if (!target) refresh.push(statusQ.reload(), userMetaQ.reload());
-    await Promise.all(refresh);
-    if (target) go(target);
+  /** Why Moodle kept another grade: locked / overridden in the gradebook, else (most likely) advanced grading. */
+  const explainIgnoredGrade = async (userid: number): Promise<SaveOutcome> => {
+    if (courseid && (await gradeLockedInGradebook(courseid, cmid, userid))) {
+      setLockedUsers((cur) => new Set(cur).add(userid));
+      return "locked";
+    }
+    setBlockedNow(true);
+    if (setup?.method === "unknown") rememberMethodBlocked(cmid);
+    return "blocked";
   };
 
-  const backHref = `/teacher/grading${courseid ?? courseHint ? `?course=${courseid ?? courseHint}` : ""}`;
-  const loadingAll = cmQ.loading || assignmentsQ.loading || (!!assignid && participantsQ.loading && !participantsQ.data);
+  const onSaved = async ({ next, grade }: SavedResult): Promise<SaveOutcome> => {
+    const userid = selectedId!;
+    const target = next ? nextRow?.id : undefined;
+    // Pin the student: a default selection would otherwise jump once they no longer need grading.
+    setSelected(userid);
+    let outcome: SaveOutcome = "applied";
+    try {
+      const fresh = await moodleClient<AssignGradesResult>("mod_assign_get_grades", { assignmentids: [assignid] });
+      setFreshGrades(fresh);
+      // Moodle skips `grade` when the gradebook grade is locked / overridden or a rubric / guide is active.
+      if (grade !== null) {
+        const stored = rawGrade(latestGrades(fresh, assignid!).get(userid)?.grade);
+        if (stored === null || Math.abs(stored - grade) >= 0.001) outcome = await explainIgnoredGrade(userid);
+      }
+    } catch {
+      // Labels refresh on the next page load; the grade itself was saved.
+    }
+    await refreshParticipant(userid).catch(() => {});
+    if (outcome === "applied" && target) go(target);
+    else await statusQ.reload();
+    return outcome;
+  };
+
+  const backCourse = courseid ?? courseHint;
+  const backHref = `/teacher/grading${backCourse ? `?course=${backCourse}` : ""}`;
+  const loadingAll =
+    cmQ.loading ||
+    assignmentsQ.loading ||
+    (!!assignid && (!groups || (participantsQ.loading && !participantsQ.data) || (gradesQ.loading && !gradesData)));
   const error =
     cmQ.error ??
     assignmentsQ.error ??
     participantsQ.error ??
-    metaQ.error ??
-    (assignmentsQ.data && !assignment ? t("grading.notFound") : null);
+    gradesQ.error ??
+    ((cm && !assignid) || (assignmentsQ.data && !assignment) ? t("grading.notFound") : null);
+  const bodyLoading = statusQ.loading || (!setup && !setupQ.error) || (advanced && !fillings);
+  const status = statusQ.data;
 
   const list = (
     <ParticipantList
@@ -219,140 +293,94 @@ export function GradingWorkspace({
       onQuery={setQuery}
       selectedId={selectedId}
       onSelect={select}
+      groups={groups}
+      groupid={groupid}
+      onGroup={changeGroup}
     />
   );
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" size="sm" href={backHref} className="-ml-2">
-        <ArrowLeft size={16} strokeWidth={1.75} />
-        {t("grading.backToList")}
-      </Button>
+      <BackLink href={backHref}>{t("grading.backToList")}</BackLink>
 
-      <QueryState
-        loading={loadingAll}
-        error={error}
-        skeleton={
-          <div className="space-y-4">
-            <Skeleton className="h-20 w-full" />
-            <div className="flex gap-4">
-              <Skeleton className="hidden h-[60vh] w-80 lg:block" />
-              <Skeleton className="h-[60vh] flex-1" />
-            </div>
-          </div>
-        }
-      >
+      <QueryState loading={loadingAll} error={error} skeleton={<WorkspaceSkeleton />}>
         {assignment && (
           <>
             <AssignmentInfo
               assignment={assignment}
-              meta={meta}
+              courseName={course?.fullname}
+              setup={setup}
               counts={counts}
               adminLink={
-                user.isSiteAdmin && MOODLE_BASE
-                  ? `${MOODLE_BASE}/mod/assign/view.php?id=${cmid}&action=grading`
+                user.isSiteAdmin && moodleBase()
+                  ? `${moodleBase()}/mod/assign/view.php?id=${cmid}&action=grading`
                   : undefined
               }
             />
 
             <div className="flex items-start gap-4">
-              <aside className="sticky top-4 hidden h-[calc(100dvh-8rem)] min-h-[420px] w-80 shrink-0 overflow-hidden rounded-xl border border-line bg-surface lg:block">
+              <aside
+                aria-label={t("grading.participants")}
+                className="sticky top-[calc(var(--topbar-h)+1rem)] hidden h-[calc(100dvh-var(--topbar-h)-3rem)] min-h-[420px] w-80 shrink-0 overflow-hidden rounded-card border border-line/60 bg-surface shadow-card lg:block dark:border-line"
+              >
                 {list}
               </aside>
 
               <div className="min-w-0 flex-1 space-y-4">
-                <Card className="flex items-center gap-3 px-4 py-3">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="lg:hidden"
-                    onClick={() => setDrawer(true)}
-                  >
-                    <Users size={16} strokeWidth={1.75} />
-                    <span className="tabular-nums">{allRows.length}</span>
-                  </Button>
-                  {selectedRow ? (
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <UserAvatar
-                        id={selectedRow.id}
-                        name={participantName(selectedRow, t)}
-                        src={selectedRow.profileimageurl}
-                        size={36}
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-fg">
-                          {participantName(selectedRow, t)}
-                        </p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                          <Badge tone={statusBadge(selectedRow).tone} className="h-5 px-1.5 text-[11px]">
-                            {t(statusBadge(selectedRow).key)}
-                          </Badge>
-                          {selectedRow.grantedextension && (
-                            <Badge tone="primary" className="h-5 px-1.5 text-[11px]">
-                              {t("grading.extensionGranted")}
-                            </Badge>
-                          )}
-                          {selectedRow.groupname && (
-                            <span className="text-xs text-subtle">{selectedRow.groupname}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="flex-1 text-sm text-subtle">{t("grading.noParticipants")}</p>
-                  )}
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={!prevRow}
-                      onClick={() => prevRow && select(prevRow.id)}
-                      aria-label={t("grading.previous")}
-                    >
-                      <ChevronLeft size={16} strokeWidth={1.75} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={!nextRow}
-                      onClick={() => nextRow && select(nextRow.id)}
-                      aria-label={t("grading.next")}
-                    >
-                      <ChevronRight size={16} strokeWidth={1.75} />
-                    </Button>
-                  </div>
-                </Card>
+                <StudentHeader
+                  row={selectedRow}
+                  total={allRows.length}
+                  onOpenList={() => setDrawer(true)}
+                  onPrev={prevRow ? () => select(prevRow.id) : undefined}
+                  onNext={nextRow ? () => select(nextRow.id) : undefined}
+                />
 
                 {selectedId !== undefined && (
                   <QueryState
-                    loading={statusQ.loading || metaQ.loading || userMetaQ.loading}
-                    error={statusQ.error ?? userMetaQ.error}
+                    loading={bodyLoading}
+                    error={statusQ.error ?? setupQ.error}
+                    skeleton={<Skeleton className="h-[50vh] w-full" />}
                   >
-                    {statusQ.data && formMeta && (
+                    {status && setup && (
                       <div
                         className={
-                          meta?.method === "rubric"
+                          setup.method === "rubric"
                             ? "space-y-4"
-                            : "space-y-4 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_400px] 2xl:items-start 2xl:gap-4 2xl:space-y-0"
+                            : "space-y-4 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_420px] 2xl:items-start 2xl:gap-4 2xl:space-y-0"
                         }
                       >
                         <SubmissionView
-                          status={statusQ.data}
-                          submission={currentSubmission(statusQ.data, team)}
+                          status={status}
+                          submission={currentSubmission(status, assignment)}
                           duedate={assignment.duedate}
-                          gradeType={assignment.grade}
-                          scale={meta?.scale}
+                          gradeLabelFor={(raw) => formatGrade(raw, assignment, setup.scale, locale)}
                           groupName={selectedRow?.groupname}
                         />
-                        <div className="2xl:sticky 2xl:top-4">
+                        <div
+                          className={
+                            setup.method === "rubric"
+                              ? undefined
+                              : "2xl:sticky 2xl:top-[calc(var(--topbar-h)+1rem)] 2xl:max-h-[calc(100dvh-var(--topbar-h)-2rem)] 2xl:overflow-y-auto 2xl:rounded-card"
+                          }
+                        >
                           <GradeForm
                             key={selectedId}
                             assignment={assignment}
-                            meta={formMeta}
+                            setup={setup}
+                            fillings={fillings}
+                            currentGrade={selectedGrade?.grade ?? status.feedback?.grade?.grade}
                             userid={selectedId}
-                            status={statusQ.data}
+                            status={status}
                             team={team}
                             hasNext={!!nextRow}
+                            methodBlocked={methodBlocked}
+                            gradeLocked={lockedUsers.has(selectedId)}
+                            canRelease={canRelease}
+                            feedbackHidden={
+                              !!assignment.markingworkflow &&
+                              status.lastattempt?.gradingstatus !== "released" &&
+                              !!selectedGrade
+                            }
                             onDirty={(d) => {
                               dirtyRef.current = d;
                             }}

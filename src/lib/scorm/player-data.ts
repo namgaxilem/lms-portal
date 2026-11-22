@@ -1,5 +1,6 @@
 import { moodleClient } from "@/lib/client-api";
 import type {
+  CourseModule,
   CourseModuleInfo,
   CourseSection,
   Scorm,
@@ -12,11 +13,24 @@ import type {
 } from "@/lib/moodle/types";
 import { parseScormDuration, type ScormMode, type ScormVersion } from "./runtime";
 
+interface ScoTracksResult {
+  data: { attempt: number; tracks: ScormTrack[] };
+}
+
+/** Where the activity sits; known as soon as the course is, even when it cannot be played. */
+export interface ScormPlacement {
+  courseId: number;
+  /** Activity name; "" when Moodle does not list the activity for this user. */
+  name: string;
+}
+
 /** Everything about the activity that does not change during a session. */
-export interface ScormPackage {
+export interface ScormPackage extends ScormPlacement {
   scorm: Scorm;
   version: ScormVersion;
   contextid: number;
+  /** The course module row (completion state for the header). */
+  cm: CourseModule;
   scoes: ScormSco[];
   access: ScormAccessInfo;
   attemptCount: number;
@@ -43,22 +57,71 @@ export interface TocItem {
   /** notattempted | incomplete | completed | passed | failed | browsed */
   status: string;
   score?: number;
+  /** cmi.progress_measure (SCORM 2004), 0–1. */
+  progress?: number;
   /** Tracked total time in seconds. */
   time: number;
 }
 
-const toMap = (tracks: ScormTrack[]) =>
+export const toTrackMap = (tracks: ScormTrack[]) =>
   Object.fromEntries(tracks.map((t) => [t.element, String(t.value ?? "")]));
 
-/** The activity is not open yet / already closed for this user. */
-export class ScormWindowError extends Error {
+/**
+ * Why the activity cannot be played: not open yet / closed for this user, not
+ * listed for them (deleted, hidden, no access), or a Moodle too old to return
+ * the activity context. The player shows each as its own translated state.
+ */
+type ScormUnavailable = "notopen" | "closed" | "notfound" | "nocontext";
+
+export class ScormUnavailableError extends Error {
   constructor(
-    readonly kind: "notopen" | "closed",
-    readonly at: number,
-    readonly activityName: string
+    readonly kind: ScormUnavailable,
+    readonly placement: ScormPlacement,
+    /** Opening / closing time (unix seconds), when Moodle reports it. */
+    readonly at?: number
   ) {
     super(kind);
   }
+}
+
+/** The activity's course module row (core_course_get_contents filtered to one cmid). */
+export async function loadModule(courseid: number, cmid: number) {
+  const sections = await moodleClient<CourseSection[]>("core_course_get_contents", {
+    courseid,
+    options: [
+      { name: "cmid", value: cmid },
+      { name: "excludecontents", value: true },
+    ],
+  });
+  return sections.flatMap((s) => s.modules).find((m) => m.id === cmid) ?? null;
+}
+
+/** Activity open/close time from module dates (3.11+), else the cached customdata. */
+function activityDate(cm: CourseModule | undefined, dataid: "timeopen" | "timeclose") {
+  const date = cm?.dates?.find((d) => d.dataid === dataid)?.timestamp;
+  if (date) return date;
+  try {
+    const value = Number((JSON.parse(cm?.customdata ?? "{}") as Record<string, unknown>)[dataid]);
+    return value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Outside the open/close window Moodle returns only the standard fields of the
+ * SCORM (no version/dates) and says why in `warnings` (notopenyet / expired).
+ * Staff with mod/scorm:viewreport are exempt and get no warning.
+ */
+function windowGate(res: ScormsByCoursesResult, scormId: number, cm: CourseModule | undefined) {
+  const codes = new Set(
+    (res.warnings ?? [])
+      .filter((w) => w.item === "scorm" && w.itemid === scormId)
+      .map((w) => w.warningcode)
+  );
+  if (codes.has("notopenyet")) return { kind: "notopen" as const, at: activityDate(cm, "timeopen") };
+  if (codes.has("expired")) return { kind: "closed" as const, at: activityDate(cm, "timeclose") };
+  return null;
 }
 
 /** Load activity settings, package location, SCO tree and the user's attempt count. */
@@ -67,67 +130,60 @@ export async function loadPackage(
   userId: number,
   courseHint?: number
 ): Promise<ScormPackage> {
-  const courseid =
+  const courseId =
     courseHint ||
     (await moodleClient<CourseModuleInfo>("core_course_get_course_module", { cmid })).cm.course;
 
-  const [byCourse, sections] = await Promise.all([
+  const [byCourse, cm] = await Promise.all([
     moodleClient<ScormsByCoursesResult>("mod_scorm_get_scorms_by_courses", {
-      courseids: [courseid],
+      courseids: [courseId],
     }),
-    moodleClient<CourseSection[]>("core_course_get_contents", {
-      courseid,
-      options: [
-        { name: "cmid", value: cmid },
-        { name: "excludecontents", value: true },
-      ],
-    }),
+    loadModule(courseId, cmid),
   ]);
 
   const scorm = byCourse.scorms.find((s) => s.coursemodule === cmid);
-  if (!scorm) throw new Error("SCORM activity not found or not accessible");
-  const contextid = sections.flatMap((s) => s.modules).find((m) => m.id === cmid)?.contextid;
-  if (!contextid) throw new Error("Moodle did not return the activity context (needs Moodle 3.10+)");
+  if (!scorm) throw new ScormUnavailableError("notfound", { courseId, name: cm?.name ?? "" });
+  const placement: ScormPlacement = { courseId, name: scorm.name };
 
-  let scoes: ScormScoesResult, access: ScormAccessInfo, attempts: { attemptscount: number };
-  try {
-    [scoes, access, attempts] = await Promise.all([
-      moodleClient<ScormScoesResult>("mod_scorm_get_scorm_scoes", { scormid: scorm.id }),
-      moodleClient<ScormAccessInfo>("mod_scorm_get_scorm_access_information", {
-        scormid: scorm.id,
-      }).catch(() => ({}) as ScormAccessInfo),
-      moodleClient<{ attemptscount: number }>("mod_scorm_get_scorm_attempt_count", {
-        scormid: scorm.id,
-        userid: userId,
-      }),
-    ]);
-  } catch (e) {
-    // Outside the open/close window Moodle refuses these calls (staff may be
-    // exempt, so only the refusal decides). Report it as a gate, not an error.
-    const now = Date.now() / 1000;
-    if (scorm.timeopen && scorm.timeopen > now) {
-      throw new ScormWindowError("notopen", scorm.timeopen, scorm.name);
-    }
-    if (scorm.timeclose && scorm.timeclose < now) {
-      throw new ScormWindowError("closed", scorm.timeclose, scorm.name);
-    }
-    throw e;
-  }
+  const gate = windowGate(byCourse, scorm.id, cm ?? undefined);
+  if (gate) throw new ScormUnavailableError(gate.kind, placement, gate.at);
+
+  // core_course_get_contents returns contextid from Moodle 3.10.
+  if (!cm?.contextid) throw new ScormUnavailableError("nocontext", placement);
+
+  const [scoes, access, attempts] = await Promise.all([
+    moodleClient<ScormScoesResult>("mod_scorm_get_scorm_scoes", { scormid: scorm.id }),
+    moodleClient<ScormAccessInfo>("mod_scorm_get_scorm_access_information", {
+      scormid: scorm.id,
+    }).catch(() => ({}) as ScormAccessInfo),
+    moodleClient<{ attemptscount: number }>("mod_scorm_get_scorm_attempt_count", {
+      scormid: scorm.id,
+      userid: userId,
+    }),
+  ]);
 
   return {
+    ...placement,
     scorm,
     version: scorm.version === "SCORM_1.3" ? "2004" : "1.2",
-    contextid,
+    contextid: cm.contextid,
+    cm,
     scoes: scoes.scoes,
     access,
     attemptCount: attempts.attemptscount,
   };
 }
 
+/**
+ * Runtime defaults and tracks of every SCO for one attempt. Pass
+ * `{ fresh: true }` for an attempt that has no tracks yet: the extra
+ * per-SCO lookups below would only come back empty.
+ */
 export async function loadAttemptData(
   pkg: ScormPackage,
   userId: number,
-  attempt: number
+  attempt: number,
+  { fresh = false }: { fresh?: boolean } = {}
 ): Promise<AttemptData> {
   const res = await moodleClient<ScormUserDataResult>("mod_scorm_get_scorm_user_data", {
     scormid: pkg.scorm.id,
@@ -135,25 +191,26 @@ export async function loadAttemptData(
   });
   const out: AttemptData = {};
   for (const sco of res.data) {
-    out[sco.scoid] = { defaults: toMap(sco.defaultdata), tracked: toMap(sco.userdata) };
+    out[sco.scoid] = { defaults: toTrackMap(sco.defaultdata), tracked: toTrackMap(sco.userdata) };
   }
 
   // SCORM 2004 (RTE 4.2.8): Moodle only returns a SCO's tracks for re-launch
   // when it exited with "suspend", so a finished SCO looks untouched. Fetch the
   // unfiltered tracks for status, score and time; the runtime still starts it
   // ab-initio from `tracked`.
-  if (pkg.version === "2004") {
+  if (pkg.version === "2004" && !fresh) {
     const launchable = new Set(pkg.scoes.filter((s) => s.launch).map((s) => s.id));
     await Promise.all(
       Object.entries(out)
         .filter(([id, d]) => launchable.has(Number(id)) && d.tracked["cmi.exit"] !== "suspend")
         .map(async ([id, d]) => {
           try {
-            const r = await moodleClient<{ data: { tracks: ScormTrack[] } }>(
-              "mod_scorm_get_scorm_sco_tracks",
-              { scoid: Number(id), userid: userId, attempt }
-            );
-            if (r.data.tracks.length) d.progress = { ...d.tracked, ...toMap(r.data.tracks) };
+            const r = await moodleClient<ScoTracksResult>("mod_scorm_get_scorm_sco_tracks", {
+              scoid: Number(id),
+              userid: userId,
+              attempt,
+            });
+            if (r.data.tracks.length) d.progress = { ...d.tracked, ...toTrackMap(r.data.tracks) };
           } catch {
             // Fall back to the filtered data.
           }
@@ -166,12 +223,12 @@ export async function loadAttemptData(
 export const isIncomplete = (status?: string) =>
   !status || status === "notattempted" || status === "incomplete" || status === "browsed";
 
-export const isDone = (status?: string) => status === "completed" || status === "passed";
-
 /** SCO status from Moodle's computed `status`, falling back to raw CMI values. */
 export function scoStatus(tracked: Record<string, string> | undefined, version: ScormVersion) {
   if (!tracked) return "notattempted";
-  if (tracked.status) return tracked.status;
+  // Moodle copies cmi.completion_status into `status` as-is, "unknown" included
+  // (locallib.php scorm_format_interactions): read the raw values instead.
+  if (tracked.status && tracked.status !== "unknown") return tracked.status;
   if (version === "1.2") {
     const s = tracked["cmi.core.lesson_status"];
     return !s || s === "not attempted" ? "notattempted" : s;
@@ -182,14 +239,21 @@ export function scoStatus(tracked: Record<string, string> | undefined, version: 
   return !c || c === "not attempted" || c === "unknown" ? "notattempted" : c;
 }
 
-export function scoScore(tracked: Record<string, string> | undefined, version: ScormVersion) {
+function scoScore(tracked: Record<string, string> | undefined, version: ScormVersion) {
   const raw =
     tracked?.score_raw ?? tracked?.[version === "1.2" ? "cmi.core.score.raw" : "cmi.score.raw"];
   return raw === undefined || raw === "" ? undefined : Number(raw);
 }
 
+/** cmi.progress_measure as 0–1, or undefined when the SCO never reported it. */
+export function scoProgress(tracked: Record<string, string> | undefined) {
+  const raw = tracked?.["cmi.progress_measure"];
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : undefined;
+}
+
 /** Organization the package starts in (the one holding `scorm.launch`). */
-export function currentOrganization(pkg: ScormPackage): string {
+function currentOrganization(pkg: ScormPackage): string {
   const launch = pkg.scoes.find((s) => s.id === pkg.scorm.launch);
   return launch?.organization || pkg.scoes.find((s) => s.parent === "/")?.identifier || "";
 }
@@ -217,6 +281,7 @@ export function buildToc(pkg: ScormPackage, data: AttemptData): TocItem[] {
         launchable: !!sco.launch,
         status: scoStatus(tracked, pkg.version),
         score: scoScore(tracked, pkg.version),
+        progress: scoProgress(tracked),
         time: parseScormDuration(
           tracked?.total_time ??
             tracked?.[pkg.version === "1.2" ? "cmi.core.total_time" : "cmi.total_time"]
@@ -302,22 +367,26 @@ export function createTrackSaver(onState: (s: SaveState) => void) {
   let running: Promise<void> | null = null;
   let failures = 0;
 
+  const send = (key: string, tracks: Map<string, string | number>) => {
+    const [scoid, attempt] = key.split(":").map(Number);
+    return moodleClient(
+      "mod_scorm_insert_scorm_tracks",
+      {
+        scoid,
+        attempt,
+        tracks: [...tracks].map(([element, value]) => ({ element, value: String(value) })),
+      },
+      { keepalive: true }
+    );
+  };
+
   async function run() {
     while (pending.size) {
       const [key, tracks] = pending.entries().next().value!;
       pending.delete(key);
-      const [scoid, attempt] = key.split(":").map(Number);
       onState("saving");
       try {
-        await moodleClient(
-          "mod_scorm_insert_scorm_tracks",
-          {
-            scoid,
-            attempt,
-            tracks: [...tracks].map(([element, value]) => ({ element, value: String(value) })),
-          },
-          { keepalive: true }
-        );
+        await send(key, tracks);
         failures = 0;
       } catch {
         // Put the batch back without clobbering anything newer that arrived meanwhile.
@@ -356,18 +425,7 @@ export function createTrackSaver(onState: (s: SaveState) => void) {
      * (typically the SCO's own commit from its unload handler) and they'd be lost.
      */
     flushNow() {
-      for (const [key, tracks] of pending) {
-        const [scoid, attempt] = key.split(":").map(Number);
-        moodleClient(
-          "mod_scorm_insert_scorm_tracks",
-          {
-            scoid,
-            attempt,
-            tracks: [...tracks].map(([element, value]) => ({ element, value: String(value) })),
-          },
-          { keepalive: true }
-        ).catch(() => {});
-      }
+      for (const [key, tracks] of pending) send(key, tracks).catch(() => {});
       pending.clear();
     },
     /** Resolves once everything queued so far has been sent (or given up on). */

@@ -16,10 +16,36 @@ const FORWARD_RESPONSE = [
   "last-modified",
 ];
 
+/**
+ * Moodle writes the file name into Content-Disposition as raw UTF-8
+ * (filelib send_file), which fetch() reads as Latin-1, so non-ASCII names
+ * (Vietnamese!) would reach the browser garbled. Rebuild the header in the
+ * RFC 6266 form: ASCII fallback + filename*=UTF-8''<percent-encoded>.
+ */
+function normalizeDisposition(raw: string): string {
+  const utf8 = Buffer.from(raw, "latin1").toString("utf8");
+  const type = /^\s*(inline|attachment)/i.exec(utf8)?.[1]?.toLowerCase() ?? "inline";
+  const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(utf8)?.[1];
+  if (!name) return type;
+  let decoded = name;
+  try {
+    decoded = decodeURIComponent(name);
+  } catch {
+    // Not percent-encoded: use as is.
+  }
+  const ascii = decoded
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/[^\x20-\x7e]|["\\]/g, "_");
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(decoded)}`;
+}
+
 /** Types that could run script if rendered as a document on our origin. */
 const ACTIVE_TYPES = /^(text\/html|application\/xhtml\+xml|text\/xml|application\/xml|image\/svg\+xml)/i;
 
-export interface ProxyOptions {
+interface ProxyOptions {
   /** Cache-Control for successful responses. */
   cacheControl: string;
   /**
@@ -42,11 +68,19 @@ export async function proxyMoodleFile(
     if (value) headers.set(name, value);
   }
 
+  // Give up if Moodle hasn't started answering in 30s. The timer only covers
+  // the response headers, so long downloads/streams are not cut off; the
+  // browser going away aborts the upstream request too.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  request.signal.addEventListener("abort", () => ctrl.abort(), { once: true });
   let upstream: Response;
   try {
-    upstream = await fetch(url, { headers, cache: "no-store", redirect: "follow" });
+    upstream = await fetch(url, { headers, cache: "no-store", redirect: "follow", signal: ctrl.signal });
   } catch {
     return new Response("Moodle unreachable", { status: 502 });
+  } finally {
+    clearTimeout(timer);
   }
 
   const out = new Headers();
@@ -54,7 +88,12 @@ export async function proxyMoodleFile(
     const value = upstream.headers.get(name);
     if (value) out.set(name, value);
   }
-  out.set("cache-control", upstream.ok ? cacheControl : "no-store");
+  const disposition = upstream.headers.get("content-disposition");
+  if (disposition) out.set("content-disposition", normalizeDisposition(disposition));
+  // fetch() already decoded a compressed body, so Moodle's length is wrong for it.
+  if (upstream.headers.get("content-encoding")) out.delete("content-length");
+  // A 304 revalidation must keep the browser's cached copy (no-store would evict it).
+  out.set("cache-control", upstream.ok || upstream.status === 304 ? cacheControl : "no-store");
 
   if (untrusted) {
     const type = upstream.headers.get("content-type") ?? "";
@@ -63,8 +102,8 @@ export async function proxyMoodleFile(
     // in the isolated viewer anyway, so only they skip the sandbox.
     if (!/^application\/pdf/i.test(type)) out.set("content-security-policy", "sandbox");
     if (ACTIVE_TYPES.test(type)) {
-      const disposition = upstream.headers.get("content-disposition") ?? "";
-      out.set("content-disposition", disposition.replace(/^inline/i, "attachment") || "attachment");
+      const current = out.get("content-disposition") ?? "";
+      out.set("content-disposition", current.replace(/^inline/i, "attachment") || "attachment");
     }
   }
 

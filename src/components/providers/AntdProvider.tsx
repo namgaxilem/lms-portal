@@ -3,20 +3,25 @@ import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { App, ConfigProvider, theme } from "antd";
 import enUS from "antd/locale/en_US";
 import viVN from "antd/locale/vi_VN";
-import { brand } from "@/config/brand";
+import { primaryOnDark } from "@/config/brand";
+import { useBrand } from "@/components/providers/BrandProvider";
 import { useLocale } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/providers/ThemeProvider";
 
 const ANTD_LOCALE = { vi: viVN, en: enUS };
 
-export default function AntdProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+/** Surface colours mirrored from the semantic tokens in globals.css. */
+const SURFACES = {
+  light: { text: "#0f172a", base: "#ffffff", container: "#ffffff", elevated: "#ffffff", border: "#d9dce7", borderSoft: "#e8eaf2", fill: "#f5f6fb", header: "#f7f8fc", headerText: "#475569", trackBg: "#eef0f6", selected: "#ffffff" },
+  dark: { text: "#f1f5f9", base: "#0b0d14", container: "#12151f", elevated: "#181c28", border: "#323848", borderSoft: "#232838", fill: "#181c28", header: "#181c28", headerText: "#94a3b8", trackBg: "#181c28", selected: "#262c3d" },
+};
+
+export default function AntdProvider({ children }: { children: React.ReactNode }) {
   const { locale } = useLocale();
   const { dark } = useTheme();
-  const primary = dark ? brand.colors.primaryDark : brand.colors.primary;
+  const brand = useBrand();
+  const primary = dark ? primaryOnDark(brand) : brand.colors.primary;
+  const s = dark ? SURFACES.dark : SURFACES.light;
 
   return (
     // `layer` emits antd styles into @layer antd; see globals.css for the order
@@ -26,45 +31,42 @@ export default function AntdProvider({
         locale={ANTD_LOCALE[locale]}
         theme={{
           algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
-          // Mirrors the semantic tokens in globals.css so antd controls sit
-          // flush with the hand-built Tailwind UI.
           token: {
             colorPrimary: primary,
             colorInfo: primary,
-            colorLink: dark ? "#8fb4f2" : brand.colors.primary,
+            colorLink: primary,
             colorSuccess: brand.colors.success,
             colorWarning: brand.colors.warning,
             colorError: brand.colors.error,
-            colorTextBase: dark ? "#fafafa" : "#18181b",
-            colorBgBase: dark ? "#09090b" : "#ffffff",
-            colorBgContainer: dark ? "#111113" : "#ffffff",
-            colorBgElevated: dark ? "#18181b" : "#ffffff",
-            colorBorder: dark ? "#3f3f46" : "#d4d4d8",
-            colorBorderSecondary: dark ? "#27272a" : "#e4e4e7",
-            colorFillAlter: dark ? "#18181b" : "#fafafa",
-            borderRadius: brand.borderRadius,
-            borderRadiusLG: 12,
+            colorTextBase: s.text,
+            colorBgBase: s.base,
+            colorBgContainer: s.container,
+            colorBgElevated: s.elevated,
+            colorBorder: s.border,
+            colorBorderSecondary: s.borderSoft,
+            colorFillAlter: s.fill,
+            borderRadius: 12,
+            borderRadiusLG: 16,
+            borderRadiusSM: 8,
             fontSize: 14,
-            controlHeight: 36,
-            fontFamily: "var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif",
-            boxShadowSecondary:
-              "0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.08)",
+            controlHeight: 40,
+            fontFamily: "var(--font-brand), ui-sans-serif, system-ui, sans-serif",
+            boxShadowSecondary: "0 1px 2px rgb(15 23 42 / 0.05), 0 12px 32px rgb(15 23 42 / 0.12)",
           },
           components: {
             Table: {
-              headerBg: dark ? "#18181b" : "#fafafa",
-              headerColor: dark ? "#a1a1aa" : "#52525b",
+              headerBg: s.header,
+              headerColor: s.headerText,
               headerSplitColor: "transparent",
-              rowHoverBg: dark ? "#18181b" : "#fafafa",
-              cellPaddingBlock: 12,
+              rowHoverBg: s.fill,
+              cellPaddingBlock: 14,
             },
-            Segmented: {
-              borderRadius: 8,
-              itemSelectedBg: dark ? "#27272a" : "#ffffff",
-              trackBg: dark ? "#18181b" : "#f4f4f5",
-            },
+            Segmented: { borderRadius: 12, itemSelectedBg: s.selected, trackBg: s.trackBg },
+            // The brand tint (globals.css), so the selected option follows each school's colour.
+            Select: { optionSelectedBg: "var(--c-primary-soft)" },
             Dropdown: { paddingBlock: 8 },
             Drawer: { paddingLG: 16 },
+            Modal: { borderRadiusLG: 20 },
           },
         }}
       >

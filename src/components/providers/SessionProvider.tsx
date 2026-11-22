@@ -1,40 +1,12 @@
 "use client";
-import { createContext, useContext, useState } from "react";
-import type { SessionUser, ViewRole } from "@/lib/moodle/types";
+import { createContext, useContext } from "react";
+import type { SessionUser } from "@/lib/moodle/types";
 
-interface SessionContextValue {
-  user: SessionUser;
-  role: ViewRole;
-  setRole: (role: ViewRole) => Promise<void>;
-}
+const SessionContext = createContext<{ user: SessionUser } | null>(null);
 
-const SessionContext = createContext<SessionContextValue | null>(null);
-
-export function SessionProvider({
-  user,
-  initialRole,
-  children,
-}: {
-  user: SessionUser;
-  initialRole: ViewRole;
-  children: React.ReactNode;
-}) {
-  const [role, setRoleState] = useState<ViewRole>(initialRole);
-
-  const setRole = async (next: ViewRole) => {
-    setRoleState(next);
-    await fetch("/api/auth/role", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: next }),
-    });
-  };
-
-  return (
-    <SessionContext.Provider value={{ user, role, setRole }}>
-      {children}
-    </SessionContext.Provider>
-  );
+/** Exposes the signed-in Moodle user (from the session cookie) to client components. */
+export function SessionProvider({ user, children }: { user: SessionUser; children: React.ReactNode }) {
+  return <SessionContext.Provider value={{ user }}>{children}</SessionContext.Provider>;
 }
 
 export function useSession() {

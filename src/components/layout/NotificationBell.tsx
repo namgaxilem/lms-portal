@@ -1,124 +1,216 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Dropdown } from "antd";
-import { ArrowRight, Bell, BellOff } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useEffect, useId, useRef, useState } from "react";
+import { App } from "antd";
+import { ArrowRight, Bell, BellOff, CheckCheck, Loader2 } from "lucide-react";
 import { useSession } from "@/components/providers/SessionProvider";
 import { useMoodle } from "@/lib/client-api";
 import { useT } from "@/i18n/I18nProvider";
-import { cn } from "@/components/ui/cn";
-import { timeAgo } from "@/lib/format";
-import { NOTIFICATIONS_CHANGED } from "@/lib/notifications";
+import { Badge, Button, IconTile, Skeleton, cn } from "@/components/ui";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
+import { NOTIFICATIONS_CHANGED, markAllNotificationsRead, rememberNotifications } from "@/lib/notifications";
 import type { NotificationsResult } from "@/lib/moodle/types";
 
+const PREVIEW = 6;
+
 /**
- * Top-bar notification bell. Clicking opens a dropdown preview of the most
- * recent notifications with a footer link to the full notifications page.
+ * Top-bar notification bell. `unread` comes from the shell, which polls the
+ * count for the sidebar badge too. The panel is a disclosure rendered right
+ * after the button, so Tab moves through its links in order; Escape or a click
+ * outside closes it. On phones it spans the screen below the top bar, sized
+ * from the shell's --topbar-h / --tabbar-h variables.
  */
-export function NotificationBell() {
+export function NotificationBell({ unread }: { unread: number }) {
   const { user } = useSession();
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const { message } = App.useApp();
+  const pathname = usePathname();
+  // The page the panel was opened on: any navigation (links, Back) closes it.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const open = openOn === pathname;
+  const [armed, setArmed] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const headingId = useId();
 
-  const { data, reload } = useMoodle<NotificationsResult>(
+  const preview = useMoodle<NotificationsResult>(
     "message_popup_get_popup_notifications",
-    { useridto: user.id, newestfirst: 1, limit: 6, offset: 0 }
+    { useridto: user.id, newestfirst: 1, limit: PREVIEW, offset: 0 },
+    !armed
   );
+  const { reload: reloadPreview } = preview;
 
-  // Refresh the badge/preview when a page marks notifications as read.
+  // Refresh the loaded list when a page marks notifications read.
   useEffect(() => {
-    const onChange = () => void reload();
-    window.addEventListener(NOTIFICATIONS_CHANGED, onChange);
-    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, onChange);
-  }, [reload]);
+    if (!armed) return;
+    window.addEventListener(NOTIFICATIONS_CHANGED, reloadPreview);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, reloadPreview);
+  }, [armed, reloadPreview]);
 
-  const notifications = data?.notifications ?? [];
-  const unread = data?.unreadcount ?? 0;
+  // Let the detail page open these instantly.
+  useEffect(() => {
+    if (preview.data) rememberNotifications(user.id, preview.data.notifications);
+  }, [preview.data, user.id]);
+
+  // Close on Escape (focus back on the bell) or on a click outside.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpenOn(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpenOn(null);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function toggle() {
+    setOpenOn(open ? null : pathname);
+    if (open) return;
+    if (armed) reloadPreview();
+    else setArmed(true);
+  }
+
+  async function markAllRead() {
+    setMarking(true);
+    try {
+      await markAllNotificationsRead(user.id);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  const notifications = preview.data?.notifications ?? [];
+  const close = () => setOpenOn(null);
 
   return (
-    <Dropdown
-      open={open}
-      onOpenChange={setOpen}
-      trigger={["click"]}
-      placement="bottomRight"
-      popupRender={() => (
-        <div className="w-80 max-w-[92vw] overflow-hidden rounded-xl border border-line bg-surface shadow-pop">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h3 className="text-sm font-semibold text-fg">{t("nav.notifications")}</h3>
+    <div
+      ref={rootRef}
+      className="relative"
+      onBlur={(e) => {
+        // Tabbing past the last link closes the panel. A null target (a click
+        // on non-focusable content) is left to the outside-click handler.
+        const next = e.relatedTarget;
+        if (open && next instanceof Node && !e.currentTarget.contains(next)) close();
+      }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={toggle}
+        aria-label={
+          unread > 0 ? t("notifications.bellUnread", { count: unread }) : t("nav.notifications")
+        }
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        className={cn(
+          "relative grid h-10 w-10 place-items-center rounded-xl bg-surface text-muted shadow-card ring-1 ring-line/60 transition hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:ring-line",
+          "brand-bar:bg-white/12 brand-bar:text-white brand-bar:shadow-none brand-bar:ring-white/15 brand-bar:hover:text-white brand-bar:focus-visible:outline-white",
+          open && "text-fg ring-line-strong brand-bar:text-white brand-bar:ring-white/40"
+        )}
+      >
+        <Bell size={18} strokeWidth={1.85} />
+        {unread > 0 && (
+          <span
+            aria-hidden
+            className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white ring-2 ring-canvas brand-bar:ring-sidebar"
+          >
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          id={panelId}
+          role="region"
+          aria-labelledby={headingId}
+          className="fixed left-3 right-3 top-[calc(var(--topbar-h)+0.5rem)] z-50 flex max-h-[calc(100dvh-var(--topbar-h)-var(--tabbar-h)-1.5rem)] animate-fade-in flex-col overflow-hidden rounded-card border border-line/60 bg-surface shadow-pop sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] dark:border-line"
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b border-line py-2 pl-4 pr-2">
+            <h2 id={headingId} className="py-2 text-[15px] font-extrabold text-fg">
+              {t("nav.notifications")}
+            </h2>
             {unread > 0 && (
-              <span className="rounded-md bg-primary-soft px-1.5 text-xs font-medium tabular-nums text-primary-text">
+              <Badge tone="danger" solid className="tabular-nums">
                 {unread > 99 ? "99+" : unread}
-              </span>
+              </Badge>
+            )}
+            {unread > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto"
+                onClick={markAllRead}
+                disabled={marking}
+                aria-label={t("notifications.markAllRead")}
+                title={t("notifications.markAllRead")}
+              >
+                {marking ? (
+                  <Loader2 size={17} strokeWidth={1.85} className="animate-spin" />
+                ) : (
+                  <CheckCheck size={17} strokeWidth={1.85} />
+                )}
+              </Button>
             )}
           </div>
 
-          <div className="max-h-96 overflow-y-auto p-1.5">
-            {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center text-subtle">
-                <BellOff size={20} strokeWidth={1.75} />
-                <p className="text-[13px]">{t("notifications.allCaughtUp")}</p>
+          <div className="max-h-[26rem] min-h-0 overflow-y-auto overscroll-contain p-1.5">
+            {preview.error ? (
+              <p role="alert" className="px-4 py-8 text-center text-[13px] text-error-text">
+                {t("common.errorTitle")}
+              </p>
+            ) : !preview.data ? (
+              <div role="status" aria-busy="true" className="space-y-1">
+                <span className="sr-only">{t("common.loading")}</span>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex gap-3 p-2.5">
+                    <Skeleton className="h-9 w-9 rounded-xl" />
+                    <div className="flex-1 space-y-2 pt-0.5">
+                      <Skeleton className="h-3.5 w-3/4" />
+                      <Skeleton className="h-3 w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="flex flex-col items-center gap-2.5 px-4 py-10 text-center">
+                <IconTile icon={BellOff} tone="primary" />
+                <p className="text-sm font-semibold text-fg">{t("notifications.allCaughtUp")}</p>
               </div>
             ) : (
-              notifications.map((n) => (
-                <Link
-                  key={n.id}
-                  href={`/notifications/${n.id}`}
-                  onClick={() => setOpen(false)}
-                  title={n.smallmessage || n.subject}
-                  className="flex gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-surface-2"
-                >
-                  <span
-                    className={cn(
-                      "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                      n.read ? "bg-transparent" : "bg-primary"
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p
-                        className={cn(
-                          "line-clamp-1 text-sm",
-                          n.read ? "text-muted" : "font-medium text-fg"
-                        )}
-                      >
-                        {n.subject}
-                      </p>
-                      <span className="shrink-0 text-xs tabular-nums text-subtle">
-                        {timeAgo(n.timecreated)}
-                      </span>
-                    </div>
-                    {n.smallmessage && (
-                      <p className="mt-0.5 line-clamp-2 text-[13px] text-subtle">
-                        {n.smallmessage}
-                      </p>
-                    )}
-                  </div>
-                </Link>
-              ))
+              <ul className="space-y-1">
+                {notifications.map((n) => (
+                  <li key={`${n.id}-${n.timecreated}`}>
+                    <NotificationItem n={n} compact onNavigate={close} />
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
           <Link
             href="/notifications"
-            onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1.5 border-t border-line px-4 py-2.5 text-[13px] font-medium text-primary-text transition-colors hover:bg-surface-2"
+            onClick={close}
+            className="flex shrink-0 items-center justify-center gap-1.5 border-t border-line px-4 py-3 text-[13px] font-bold text-primary-text transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
           >
             {t("notifications.viewAll")}
-            <ArrowRight size={14} />
+            <ArrowRight size={14} strokeWidth={2} />
           </Link>
         </div>
       )}
-    >
-      <button
-        type="button"
-        aria-label={t("nav.notifications")}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-      >
-        <Bell size={18} strokeWidth={1.75} />
-        {unread > 0 && (
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-error ring-2 ring-surface" />
-        )}
-      </button>
-    </Dropdown>
+    </div>
   );
 }

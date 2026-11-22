@@ -1,28 +1,13 @@
 "use client";
-import { useT } from "@/i18n/I18nProvider";
+import { useId } from "react";
+import { Check, CircleAlert } from "lucide-react";
+import { useLocale, useT } from "@/i18n/I18nProvider";
 import { cn } from "@/components/ui";
 import type { RubricCriterion } from "@/lib/moodle/types";
-import { fieldClass, formatNumber } from "./lib";
+import { formatNumber } from "@/lib/format";
+import { textareaClass, type RubricValue } from "./lib";
 
-export type RubricValue = Record<number, { levelid?: number; remark: string }>;
-
-/** Raw rubric score plus the min/max reachable, used to estimate the grade. */
-export function rubricTotals(criteria: RubricCriterion[], value: RubricValue) {
-  let total = 0;
-  let min = 0;
-  let max = 0;
-  for (const c of criteria) {
-    const scores = c.levels.map((l) => l.score);
-    if (scores.length === 0) continue;
-    min += Math.min(...scores);
-    max += Math.max(...scores);
-    const level = c.levels.find((l) => l.id === value[c.id]?.levelid);
-    if (level) total += level.score;
-  }
-  return { total, min, max };
-}
-
-/** Criteria × levels; click a level to select it. Optional remark per criterion. */
+/** Criteria × levels as native radio groups, plus an optional remark per criterion. */
 export function RubricGrid({
   criteria,
   value,
@@ -35,59 +20,82 @@ export function RubricGrid({
   /** Receives an updater so rapid consecutive picks never overwrite each other. */
   onChange: (update: (prev: RubricValue) => RubricValue) => void;
   disabled?: boolean;
-  /** Highlight criteria without a level (after a failed save attempt). */
+  /** Mark criteria without a level (after a failed save attempt). */
   showErrors?: boolean;
 }) {
   const t = useT();
+  const { locale } = useLocale();
+  const base = useId();
   const set = (id: number, patch: Partial<RubricValue[number]>) =>
     onChange((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { remark: "" }), ...patch } }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {criteria.map((c) => {
         const missing = showErrors && !value[c.id]?.levelid;
+        const errorId = `${base}-missing-${c.id}`;
         return (
-          <fieldset key={c.id} disabled={disabled} className="space-y-2">
-            <legend className={cn("text-sm font-medium", missing ? "text-error" : "text-fg")}>
+          <fieldset
+            key={c.id}
+            disabled={disabled}
+            data-invalid={missing || undefined}
+            className={cn(
+              "space-y-2.5 rounded-control border p-3",
+              missing ? "border-error/50 bg-error-soft/40" : "border-line"
+            )}
+          >
+            <legend className={cn("px-1 text-sm font-bold whitespace-pre-line", missing ? "text-error-text" : "text-fg")}>
               {c.description}
             </legend>
-            <div className="flex gap-2 overflow-x-auto pb-1" role="radiogroup">
+            {missing && (
+              <p id={errorId} className="flex items-center gap-1.5 text-xs font-semibold text-error-text">
+                <CircleAlert size={14} strokeWidth={2} aria-hidden className="shrink-0" />
+                {t("grading.errors.levelRequired")}
+              </p>
+            )}
+            <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
               {c.levels.map((l) => {
                 const selected = value[c.id]?.levelid === l.id;
                 return (
-                  <button
+                  <label
                     key={l.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => set(c.id, { levelid: l.id })}
                     className={cn(
-                      "flex min-w-32 flex-1 flex-col gap-1 rounded-lg border p-2.5 text-left transition-colors disabled:opacity-60",
+                      "relative flex min-w-36 flex-1 snap-start cursor-pointer flex-col gap-1 rounded-control border p-2.5 transition has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring has-[input:disabled]:cursor-default has-[input:disabled]:opacity-60",
                       selected
-                        ? "border-primary bg-primary-soft ring-1 ring-primary"
-                        : missing
-                          ? "border-error/40 hover:bg-surface-2"
-                          : "border-line hover:border-line-strong hover:bg-surface-2"
+                        ? "border-primary bg-primary-soft ring-2 ring-primary/25"
+                        : "border-line hover:border-line-strong hover:bg-surface-2"
                     )}
                   >
+                    <input
+                      type="radio"
+                      name={`rubric-${c.id}`}
+                      value={l.id}
+                      checked={selected}
+                      onChange={() => set(c.id, { levelid: l.id })}
+                      aria-describedby={missing ? errorId : undefined}
+                      className="sr-only"
+                    />
                     <span
                       className={cn(
-                        "text-xs font-semibold tabular-nums",
+                        "flex items-center justify-between gap-2 text-xs font-bold tabular-nums",
                         selected ? "text-primary-text" : "text-muted"
                       )}
                     >
-                      {t("grading.points", { n: formatNumber(l.score) })}
+                      {t("grading.points", { n: formatNumber(l.score, locale) })}
+                      {selected && <Check size={14} strokeWidth={2.5} aria-hidden />}
                     </span>
-                    <span className="text-xs leading-snug text-fg">{l.definition}</span>
-                  </button>
+                    <span className="text-xs leading-snug whitespace-pre-line text-fg">{l.definition}</span>
+                  </label>
                 );
               })}
             </div>
-            <input
+            <textarea
+              rows={1}
               value={value[c.id]?.remark ?? ""}
               onChange={(e) => set(c.id, { remark: e.target.value })}
               placeholder={t("grading.remarkPlaceholder")}
-              className={cn(fieldClass, "h-8 w-full text-[13px]")}
+              aria-label={`${t("grading.remarkPlaceholder")}: ${c.description}`}
+              className={textareaClass}
             />
           </fieldset>
         );

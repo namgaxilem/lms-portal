@@ -1,21 +1,18 @@
 "use client";
 import { FallbackImg } from "@/components/ui/FallbackImg";
-import { initials } from "@/lib/format";
 import { cn } from "@/components/ui/cn";
+import { courseStyle } from "@/lib/course-color";
+import { initials } from "@/lib/format";
 
-// Soft tints keyed by id — distinguishable, never loud.
-const TINTS = [
-  "bg-primary-soft text-primary-text",
-  "bg-success-soft text-success",
-  "bg-warning-soft text-[#b45309] dark:text-warning",
-  "bg-surface-3 text-muted",
-];
+// Moodle serves a generic silhouette for users without a photo: …/theme/image.php/…/u/f1
+// (slash arguments) or …/theme/image.php?…image=u%2Ff1. Show initials instead.
+const DEFAULT_PIC = /\/theme\/image\.php(?:\/.*\/u\/f\d|\?.*image=u(?:%2F|\/)f\d)/i;
 
-// Moodle serves a generic silhouette (…/theme/image.php/…/u/f1) for users
-// without a photo; fall back to initials instead of showing it.
-const DEFAULT_PIC = /\/theme\/image\.php\/.*\/u\/f\d/;
-
-/** Round avatar: photo when available, else initials tinted by id. */
+/**
+ * Round avatar: the Moodle photo when there is one, else white initials on a
+ * vivid gradient. The colour comes from the course palette keyed by `id`, so a
+ * person keeps the same colour everywhere.
+ */
 export function UserAvatar({
   name,
   id,
@@ -29,16 +26,15 @@ export function UserAvatar({
   src?: string | null;
   className?: string;
 }) {
-  const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
+  const box = { width: size, height: size };
   const fallback = (
     <div
       aria-hidden
       className={cn(
-        "flex shrink-0 select-none items-center justify-center rounded-full font-semibold",
-        TINTS[Math.abs(id) % TINTS.length],
+        "flex shrink-0 select-none items-center justify-center rounded-full bg-course-gradient font-bold text-white",
         className
       )}
-      style={style}
+      style={courseStyle(id, { ...box, fontSize: Math.round(size * 0.38) })}
     >
       {initials(name)}
     </div>
@@ -46,8 +42,8 @@ export function UserAvatar({
   return (
     <FallbackImg
       src={src && !DEFAULT_PIC.test(src) ? src : null}
-      style={style}
-      className={cn("shrink-0 rounded-full object-cover", className)}
+      style={box}
+      className={cn("shrink-0 rounded-full bg-surface-2 object-cover", className)}
       fallback={fallback}
     />
   );

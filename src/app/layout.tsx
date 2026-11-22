@@ -1,56 +1,56 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Be_Vietnam_Pro } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
 import AntdProvider from "@/components/providers/AntdProvider";
+import { BrandProvider } from "@/components/providers/BrandProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { getLocale } from "@/i18n/server";
-import { brand } from "@/config/brand";
+import { sidebarColors } from "@/config/brand";
+import { getBrand } from "@/config/brand.server";
 import { BrandStyle } from "@/config/BrandStyle";
+import { portalConfigScript } from "@/lib/public-config";
 
-const inter = Inter({
+// Designed for Vietnamese: proper diacritic spacing at every weight.
+const sans = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
-  variable: "--font-inter",
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-brand",
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: brand.openGraph.title,
-    template: `%s | ${brand.shortName}`,
-  },
-  description: brand.openGraph.description,
-  keywords: brand.seo.keywords,
-  authors: [{ name: brand.seo.author }],
-  creator: brand.seo.author,
-  publisher: brand.seo.author,
-  robots: "index, follow",
-  openGraph: {
-    title: brand.openGraph.title,
-    description: brand.openGraph.description,
-    url: brand.openGraph.url,
-    siteName: brand.name,
-    locale: "en_US",
-    type: brand.openGraph.type as any,
-    ...(brand.openGraph.image && { images: [{ url: brand.openGraph.image }] }),
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: brand.openGraph.title,
-    description: brand.openGraph.description,
-    ...(brand.openGraph.image && { images: [brand.openGraph.image] }),
-  },
-  icons: {
-    icon: brand.favicon,
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // Brand comes from runtime env vars: resolve per request, not at build time.
+  await connection();
+  const brand = getBrand();
+  const title = `${brand.appName} · ${brand.name}`;
+  return {
+    title: { default: title, template: `%s | ${brand.shortName}` },
+    description: brand.description,
+    applicationName: brand.appName,
+    openGraph: {
+      title,
+      description: brand.description,
+      url: brand.url,
+      siteName: brand.name,
+      type: "website",
+    },
+    icons: { icon: brand.favicon },
+  };
+}
 
-export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
-    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
-  ],
-};
+export async function generateViewport(): Promise<Viewport> {
+  // The phone browser bar continues the school-coloured top bar (runtime brand).
+  await connection();
+  const nav = sidebarColors(getBrand());
+  return {
+    themeColor: [
+      { media: "(prefers-color-scheme: light)", color: nav.light },
+      { media: "(prefers-color-scheme: dark)", color: nav.dark },
+    ],
+  };
+}
 
 export default async function RootLayout({
   children,
@@ -58,15 +58,19 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getLocale();
+  const brand = getBrand();
 
   return (
     <html
       lang={locale}
-      className={`${inter.variable} h-full antialiased`}
+      className={`${sans.variable} h-full antialiased`}
       // The theme script below adds `dark` before hydration.
       suppressHydrationWarning
     >
       <head>
+        <BrandStyle brand={brand} />
+        {/* Runtime client config (Moodle URL) — one build serves any school. */}
+        <script dangerouslySetInnerHTML={{ __html: portalConfigScript() }} />
         {/* Apply the saved (or system) theme before paint to avoid a flash. */}
         <script
           dangerouslySetInnerHTML={{
@@ -76,12 +80,13 @@ export default async function RootLayout({
       </head>
       {/* Browser extensions often inject attributes on <body>. */}
       <body className="min-h-full bg-canvas text-fg" suppressHydrationWarning>
-        <BrandStyle />
-        <ThemeProvider>
-          <I18nProvider initialLocale={locale}>
-            <AntdProvider>{children}</AntdProvider>
-          </I18nProvider>
-        </ThemeProvider>
+        <BrandProvider brand={brand}>
+          <ThemeProvider>
+            <I18nProvider initialLocale={locale}>
+              <AntdProvider>{children}</AntdProvider>
+            </I18nProvider>
+          </ThemeProvider>
+        </BrandProvider>
       </body>
     </html>
   );
