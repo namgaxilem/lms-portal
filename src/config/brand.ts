@@ -61,11 +61,13 @@ const DEFAULT_BRAND: Brand = {
   url: "https://lms-ufm.edu.vn/",
   logoMark: "/images/logo-mark.png",
   favicon: "/favicon.ico",
+  // UFM blues: navy (UFM's established brand colour), the main blue of the
+  // logo, and a bright blue — so the default gradient stays on-brand.
   colors: {
-    primary: "#1d4ed8",
-    primaryDark: null,
-    secondary: "#6d28d9",
-    accent: "#db2777",
+    primary: "#14468c",
+    primaryDark: "#3b7ae0",
+    secondary: "#075697",
+    accent: "#2563eb",
     success: "#059669",
     warning: "#d97706",
     error: "#dc2626",

@@ -33,9 +33,9 @@ All branding variables are optional. Unset values fall back to `DEFAULT_BRAND` i
 | `BRAND_URL` | `https://lms.abc.edu.vn` | OpenGraph URL |
 | `BRAND_LOGO_MARK` | `/images/logo-mark.png` or `https://…/logo.svg` | Square logo (sidebar, login, landing) |
 | `BRAND_FAVICON` | `/favicon.ico` | Browser tab icon |
-| `BRAND_COLOR_PRIMARY` | `#1d4ed8` | Buttons, links, active states, first gradient stop |
-| `BRAND_COLOR_SECONDARY` | `#6d28d9` | Second gradient stop |
-| `BRAND_COLOR_ACCENT` | `#db2777` | Third gradient stop (the colourful hero gradient) |
+| `BRAND_COLOR_PRIMARY` | `#14468c` | Buttons, links, active states, first gradient stop |
+| `BRAND_COLOR_SECONDARY` | `#075697` | Second gradient stop |
+| `BRAND_COLOR_ACCENT` | `#2563eb` | Third gradient stop (the colourful hero gradient) |
 | `BRAND_COLOR_PRIMARY_DARK` | `#7aa2ff` | Optional primary for dark mode (derived automatically when unset) |
 | `BRAND_COLOR_SUCCESS` / `_WARNING` / `_ERROR` | `#059669` | Status colours |
 | `BRAND_SUPPORT_EMAIL` / `_PHONE` / `_ADDRESS` | | Contact block on the landing and login pages (each hidden when empty) |
